@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "test:privacy": "node --experimental-sqlite ../ingest/test-privacy.mjs",
     "test:api": "node --experimental-sqlite ../ingest/test-api-privacy.mjs",
-    "smoke": "node v71-accept.mjs && node v72-accept.mjs && node v73-accept.mjs && node v74-accept.mjs"
+    "smoke": "node --input-type=module -e \"console.log('公开仓不含带口令的浏览器验收稿；本地请对运行中的实例做点击复核。')\""
   },
   "dependencies": {
     "animejs": "^4.5.0",

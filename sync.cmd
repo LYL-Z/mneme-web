@@ -12,20 +12,16 @@ echo [1/3] 重扫描知识库（只读）...
 node --experimental-sqlite ingest\ingest.mjs
 if errorlevel 1 goto :err
 
-echo [2/3] 构建前端...
+echo [2/3] 构建前端并按白名单同步产物...
 pushd web
-call npm run build
+call npm run release
 if errorlevel 1 popd & goto :err
 popd
 
-echo [3/3] 打包 deploy 目录...
+echo [3/3] 同步服务端与数据库到 deploy\ ...
 copy /y ingest\mneme.db deploy\mneme.db >nul
 copy /y server\*.mjs deploy\server\ >nul
 copy /y server\package.json deploy\server\ >nul
-if exist web\dist\index.html (
-  rmdir /s /q deploy\web-dist
-  xcopy /e /i /q web\dist deploy\web-dist >nul
-) else goto :err
 
 echo.
 echo ✅ 同步完成。数据与前端已就绪于 deploy\ 。

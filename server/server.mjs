@@ -139,14 +139,20 @@ app.use('*', async (c, next) => {
 
 /* ---------- 登录限速：失败退避（单实例内存计数，5 次/分钟/IP）；绝密门共用 ---------- */
 const loginFails = new Map();
-const clientIp = (c) => (c.req.header('x-forwarded-for') || '').split(',')[0].trim() || (CLOUD ? 'cloud' : 'local');
+const clientIp = (c) => (
+  (c.req.header('x-forwarded-for') || '').split(',')[0].trim()
+  || (c.req.header('x-real-ip') || '').trim()
+  || (c.req.header('cf-connecting-ip') || '').trim()
+);
 const loginGate = (ip) => {
+  if (!ip) return true; // 取不到来源时不把全站锁进同一个桶
   const rec = loginFails.get(ip);
   if (!rec) return true;
   if (Date.now() - rec.t > 60_000) { loginFails.delete(ip); return true; }
   return rec.n < 5;
 };
 const loginFail = (ip) => {
+  if (!ip) return;
   const rec = loginFails.get(ip);
   if (!rec || Date.now() - rec.t > 60_000) loginFails.set(ip, { n: 1, t: Date.now() });
   else { rec.n += 1; rec.t = Date.now(); }
