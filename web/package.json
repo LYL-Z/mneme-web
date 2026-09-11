@@ -1,0 +1,35 @@
+{
+  "name": "mneme-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "sync:dist": "node scripts/sync-dist.mjs",
+    "release": "npm run build && npm run sync:dist",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "preview": "vite preview",
+    "test:privacy": "node --experimental-sqlite ../ingest/test-privacy.mjs",
+    "test:api": "node --experimental-sqlite ../ingest/test-api-privacy.mjs",
+    "smoke": "node v71-accept.mjs && node v72-accept.mjs && node v73-accept.mjs && node v74-accept.mjs"
+  },
+  "dependencies": {
+    "animejs": "^4.5.0",
+    "d3-force": "^3.0.0",
+    "html2canvas": "^1.4.1",
+    "markdown-it": "^15.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/d3-force": "^3.0.10",
+    "@types/markdown-it": "^14.2.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

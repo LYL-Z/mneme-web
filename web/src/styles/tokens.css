@@ -1,0 +1,174 @@
+/* ============================================================
+   ΜΝΗΜΗ · 设计令牌（v3 §6 + apple-design 弹簧体系）
+   纸色纸感 · 墨字 · 青铜金 · 爱琴蓝 —— 液态玻璃叠印在纸上
+   ============================================================ */
+:root {
+  /* 色彩 */
+  --paper: #F5F0E6;
+  --paper-deep: #EDE6D6;
+  --ink: #1D1A16;
+  --ink-soft: #4A443A;
+  --ink-faint: #8C8371;
+  --bronze: #A9864A;
+  --bronze-bright: #C7A45E;
+  --aegean: #274B6E;
+  --aegean-soft: #5B7A99;
+  --vol1: #8FA38A; --vol2: #B98A5E; --vol3: #A86A6A; --vol4: #6E8AA8; --vol5: #C2A46B;
+  --night: #14120E;
+  --night-soft: #1E1B16;
+  --danger: #C07A6A;
+
+  /* 玻璃 */
+  --glass-blur: blur(28px) saturate(180%);
+  --glass-bg: rgba(245, 240, 230, 0.55);
+  --glass-bg-dark: rgba(28, 26, 22, 0.38);
+  --glass-border: rgba(29, 26, 22, 0.10);
+  --glass-border-bright: rgba(255, 255, 255, 0.35);
+  --glass-shadow: 0 8px 24px rgba(29, 26, 22, 0.08), 0 32px 64px rgba(29, 26, 22, 0.10);
+  /* v3.2 · 阅读实底（长文/表格/证据专用，无模糊无折射） */
+  --surface-read: #FBF7EE;
+  /* Liquid Glass（M6.5）：边缘高光 / 扫光 / 跟随光 */
+  --glass-hi-top: rgba(255, 255, 255, 0.55);
+  --glass-hi-bottom: rgba(29, 26, 22, 0.08);
+  --glass-sweep: rgba(255, 255, 255, 0.12);
+  --glass-sweep-strong: rgba(255, 255, 255, 0.18);
+  /* 回纸：白光无提升空间，跟随光用青铜暖金焦散（阳光透玻璃的暖调） */
+  --glass-follow: rgba(169, 134, 74, 0.20);
+
+  /* 动效（apple-design 体系） */
+  --dur-1: 160ms; --dur-2: 240ms; --dur-3: 420ms; --dur-4: 640ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* 字体 */
+  --serif: "Source Han Serif SC", "Noto Serif SC", "Songti SC", Georgia, serif;
+  --sans: "Source Han Sans SC", "Noto Sans SC", "PingFang SC", -apple-system, "Segoe UI", sans-serif;
+  --greek: Georgia, "Palatino Linotype", serif;
+
+  /* 字阶（v4 · A0 收口：微标注/元信息/界面正文三档，全站小字号归并；展示字号维持原设）
+     --fs-2xs 10px：角标/图注 · --fs-xs 11px：组标签/徽章/角标 · --fs-s 12px：元信息/副题/辅助 · --fs-r 13px：按钮/列表/导航
+     v8 补漏：--fs-2xs 与 --fs-l 此前被 app.css 引用（3 处 / 10 处）却从未定义，
+     导致 font-size 整条声明失效、字号回落到继承值——现已补齐。 */
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-s: 12px;
+  --fs-r: 13px;
+  /* v4 · A0 展示字阶：标题/区头/卡片头/正文，值即原设计值，归并近似档（21→20、15→14、28→30）
+     --fs-l 17px：正文强调 / 小标题，介于 --fs-r(13) 与 --fs-h3(20) 之间 */
+  --fs-m: 14px; --fs-l: 17px; --fs-h3: 20px; --fs-h2: 24px; --fs-display: 30px;
+
+  /* 布局 */
+  --nav-h: 64px;
+  --r-lg: 28px; --r-md: 18px; --r-sm: 12px;
+}
+
+/* 纸纹基底三色（M6 主题化：night 块覆盖后纸纹随主题过渡） */
+:root {
+  color-scheme: light;
+  --field-hi: rgba(255, 255, 255, 0.55);
+  --field-glow: rgba(169, 134, 74, 0.10);
+  --field-line: rgba(29, 26, 22, 0.012);
+}
+
+/* ============ 墨夜主题（data-theme="night"，M6） ============
+   暖黑夜幕 + 暖白墨字反转；青铜金/爱琴蓝提亮一档；
+   玻璃改暗玻璃，纸纹退为极微光。五卷色为中明度，暗底可读，保持不动。 */
+[data-theme="night"] {
+  color-scheme: dark;
+  --paper: #16140F;
+  --paper-deep: #1E1B15;
+  --ink: #EDE6D6;
+  --ink-soft: #BFB49F;
+  --ink-faint: #827867;
+  --bronze: #C7A45E;
+  --bronze-bright: #E4C98F;
+  --aegean: #8FADC9;
+  --aegean-soft: #6C8AA9;
+  --glass-bg: rgba(32, 29, 23, 0.52);
+  --glass-border: rgba(237, 230, 214, 0.13);
+  --glass-border-bright: rgba(255, 255, 255, 0.16);
+  --glass-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 32px 64px rgba(0, 0, 0, 0.45);
+  /* 墨夜：高光转暖白、跟随光转暖金 */
+  --glass-hi-top: rgba(237, 230, 214, 0.14);
+  --glass-hi-bottom: rgba(0, 0, 0, 0.42);
+  --glass-sweep: rgba(237, 230, 214, 0.06);
+  --glass-sweep-strong: rgba(237, 230, 214, 0.10);
+  --glass-follow: rgba(228, 201, 143, 0.16);
+  --surface-read: #201D16;
+  --field-hi: rgba(255, 255, 255, 0.04);
+  --field-glow: rgba(199, 164, 94, 0.07);
+  --field-line: rgba(237, 230, 214, 0.016);
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--serif);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+::selection { background: rgba(169, 134, 74, 0.35); }
+
+/* 纸纹基底：细网点 + 轻晕影（主题化：颜色走变量，切换时平滑过渡） */
+.paper-field {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(1200px 800px at 20% 10%, var(--field-hi), transparent 60%),
+    radial-gradient(1000px 700px at 85% 90%, var(--field-glow), transparent 55%),
+    repeating-linear-gradient(0deg, transparent 0 3px, var(--field-line) 3px 4px),
+    var(--paper);
+  transition: background var(--dur-4) var(--ease-out);
+}
+
+/* 液态玻璃卡片 */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: var(--r-lg);
+}
+
+/* 希腊字排印 */
+.greek {
+  font-family: var(--greek);
+  letter-spacing: 0.35em;
+  font-weight: 500;
+}
+
+button { font-family: inherit; }
+a { color: var(--aegean); text-decoration: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============ v4 · E2 高对比模式（data-contrast="high"，偏好面板驱动） ============ */
+html.contrast-high {
+  --ink: #000000;
+  --ink-soft: #26221C;
+  --ink-faint: #55503F;
+  --glass-bg: rgba(252, 249, 240, 0.96);
+  --glass-border: rgba(0, 0, 0, 0.45);
+  --glass-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+  --surface-read: #FFFFFF;
+  --field-line: rgba(0, 0, 0, 0.05);
+}
+html.contrast-high[data-theme="night"] {
+  --ink: #FFFFFF;
+  --ink-soft: #E4DCC8;
+  --ink-faint: #B5AB93;
+  --glass-bg: rgba(10, 9, 6, 0.96);
+  --glass-border: rgba(255, 255, 255, 0.55);
+  --surface-read: #0C0A07;
+}
+/* E4 · 偏好开关的 JS 行为钩子：关玻璃光效时压平滤镜与跟随光 */
+html.no-glass { --glass-blur: none; --glass-follow: transparent; --glass-sweep: transparent; --glass-sweep-strong: transparent; }

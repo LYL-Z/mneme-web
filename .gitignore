@@ -1,0 +1,64 @@
+node_modules/
+dist/
+*.db
+*.db-wal
+*.db-shm
+ingest/snapshot.json
+ingest/survey-stats.json
+
+# 含明文口令或绝密姓名的本机验收稿，不进公开仓
+web/v5-accept.mjs
+web/v6-accept.mjs
+web/v72-accept.mjs
+web/v73-accept.mjs
+web/v72-prod.mjs
+web/v73-prod.mjs
+web/audit-live.mjs
+web/audit-live2.mjs
+docs/v7.1-改进与部署记录.md
+docs/v7.2-五项修补记录.md
+docs/v7.3-三项修补记录.md
+INGEST-REPORT.md
+
+# 本机历史探针（本机路径 / 默认口令 / 旧生产地址）
+web/shots.mjs
+web/lg-shots.mjs
+web/prod-accept.mjs
+web/v31-shots.mjs
+web/v32-accept.mjs
+web/v34-audit.mjs
+web/v34-audit2.mjs
+web/v405-*.mjs
+web/v406-prod.mjs
+web/v41-verify.mjs
+web/v41b-verify.mjs
+web/v41c-verify.mjs
+web/v42-prod.mjs
+web/v44-prod.mjs
+web/v45-*.mjs
+web/v46-*.mjs
+web/v47-*.mjs
+web/v48-*.mjs
+web/v5-diag.mjs
+web/v5-perf.mjs
+web/v5-verify.mjs
+web/v51-verify.mjs
+web/v71-accept.mjs
+web/v74-accept.mjs
+
+# 本机绝密配置（姓名 / 口令 / 文档路径）——禁止入库
+server/privacy.local.json
+deploy/server/privacy.local.json
+.env
+.env.*
+
+# 构建产物与临时探测（含历史泄漏样本）
+tmp/
+site/
+deploy/web-dist/
+*.log
+
+# playwright-cli 会话产物（本机临时）
+web/.playwright-cli/
+web/gate.yaml
+web/vite.config.ts.timestamp-*.mjs

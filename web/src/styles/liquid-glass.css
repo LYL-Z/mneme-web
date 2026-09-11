@@ -1,0 +1,83 @@
+/* ============================================================
+   ΜΝΗΜΗ · Liquid Glass 引擎（M6.5）
+   四层叠加，落点 = 全站 .glass 基类：
+   ① 边缘高光 · 上受光缘亮 / 下背光缘暗（玻璃厚度直觉）
+   ② 折射置换 · SVG feDisplacementMap 背景扭曲
+      —— 由 App.tsx 行为级探测（CSS.supports 会对 url() 语法误报，
+         Safari/Firefox 返回 true 但运行时丢弃 → 整条声明失效，
+         故探测通过才挂 .lg-displacement 类）
+   ③ 镜面扫光 · ::before 斜向微光，入场单次淡入驻留
+   ④ 鼠标跟随光 · ::after 径向光斑，pointermove 写 --mx/--my（rAF 节流）
+   降级：Safari/Firefox 无置换仅模糊；prefers-reduced-motion 静止玻璃
+   ============================================================ */
+
+/* ① 边缘高光：叠加在原投影之前（inset 在前，外影在后） */
+.glass {
+  box-shadow:
+    inset 0 1px 0 var(--glass-hi-top),
+    inset 0 -1px 0 var(--glass-hi-bottom),
+    var(--glass-shadow);
+}
+
+/* ② 折射置换：url() 在先、模糊饱和在后 —— 先折射后散射，符合真实玻璃 */
+.lg-displacement .glass {
+  backdrop-filter: url('#mneme-glass') var(--glass-blur);
+  -webkit-backdrop-filter: url('#mneme-glass') var(--glass-blur);
+}
+
+/* ③ 镜面扫光（::before）三层液感合成：
+      L1 105° 斜面扫光（入场单次淡入）
+      L2 左暖右冷边缘色差 —— 液态玻璃标志性的 chromatic aberration 错觉
+      L3 顶部聚光 —— 光从上方来，玻璃顶面先亮
+   （z-index -1 = 玻璃底色之上、内容之下） */
+.glass::before {
+  content: '';
+  position: absolute; inset: 0; z-index: -1;
+  border-radius: inherit; pointer-events: none;
+  background:
+    linear-gradient(105deg, var(--glass-sweep), transparent 55%),
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--bronze) 10%, transparent), transparent 10%,
+      transparent 90%, color-mix(in srgb, var(--aegean) 8%, transparent)),
+    radial-gradient(120% 60% at 50% -10%, var(--glass-hi-top), transparent 60%);
+  animation: lg-sweep 900ms var(--ease-out) both;
+}
+
+/* 大面板扫光加重一档：顶栏 / ⌘K 弹窗 / 星图抽屉 / 章节材料链面板
+   （阅读正文 .ar-body 已改稳定实底 --surface-read，不在此列——正文不折射） */
+.nav.glass::before,
+.ck.glass::before,
+.gp-sheet.glass::before,
+.cp.glass::before {
+  background:
+    linear-gradient(105deg, var(--glass-sweep-strong), transparent 55%),
+    linear-gradient(90deg,
+      color-mix(in srgb, var(--bronze) 12%, transparent), transparent 10%,
+      transparent 90%, color-mix(in srgb, var(--aegean) 10%, transparent)),
+    radial-gradient(120% 60% at 50% -10%, var(--glass-hi-top), transparent 60%);
+}
+
+@keyframes lg-sweep {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ④ 鼠标跟随光：坐标由全局 pointermove 委托写入（App.tsx），悬停即亮 */
+.glass::after {
+  content: '';
+  position: absolute; inset: 0; z-index: -1;
+  border-radius: inherit; pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-2) var(--ease-out);
+  background: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), var(--glass-follow), transparent 70%);
+}
+.glass:hover::after { opacity: 1; }
+
+/* ⑤ 降级：减动效 → 置换与扫光关闭，玻璃静止（跟随光由 JS 守卫不启动） */
+@media (prefers-reduced-motion: reduce) {
+  .glass::before { animation: none; }
+  .lg-displacement .glass {
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+  }
+}

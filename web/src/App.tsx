@@ -1,0 +1,542 @@
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { animate } from 'animejs';
+import { api, apiErrorMessage, type Overview } from './api';
+import { notify } from './toast';
+import ErrorBoundary from './ErrorBoundary';
+import { Gate } from './space/Gate';
+import { Stars } from './space/Stars';
+import { CommandK } from './space/CommandK';
+import { SecretGate } from './space/SecretGate';
+import { Wellness } from './space/Wellness';
+import { Announce } from './space/Announce';
+import { BGM } from './space/BGM';
+import { immLevel, bindGradientBlur, bindPressRipple, watchFps } from './immersive';
+import { Foreshadow } from './space/Foreshadow';
+import { readPrefs } from './space/Wellness';
+import { stageAnchorYear } from './stages';
+
+/* v4 · B1 路由代码分割：d3-force（Graph）与重型空间按需加载，首屏只载 记忆恒星+导航 */
+const River = lazy(() => import('./space/River').then(m => ({ default: m.River })));
+const Graph = lazy(() => import('./space/Graph').then(m => ({ default: m.Graph })));
+const Archive = lazy(() => import('./space/Archive').then(m => ({ default: m.Archive })));
+const Study = lazy(() => import('./space/Study').then(m => ({ default: m.Study })));
+const ChapterPanel = lazy(() => import('./space/ChapterPanel').then(m => ({ default: m.ChapterPanel })));
+const Museum = lazy(() => import('./space/Museum').then(m => ({ default: m.Museum })));
+const Voices = lazy(() => import('./space/Voices').then(m => ({ default: m.Voices })));
+const Themes = lazy(() => import('./space/Themes').then(m => ({ default: m.Themes })));
+const Lighthouse = lazy(() => import('./space/Lighthouse').then(m => ({ default: m.Lighthouse })));
+const Lazy = ({ children }: { children: React.ReactNode }) => (
+  <Suspense fallback={<div className="space-loading" aria-label="加载中" />}>{children}</Suspense>
+);
+
+/** v3.5 · 四分组导航（审查文档「建议的信息架构」）：工作台 / 资料 / 书稿 / 探索 + 治理
+ *  文学化名称为主名、功能名作副题；Σ 编号从导航退役（各空间页内页眉仍保留），响应「降低重复希腊标签」。
+ *  证据灯塔独立成组——它既是展示空间，也是后续右侧来源检查器的全局入口。 */
+const NAV_GROUPS = [
+  { label: '工作台', spaces: [{ key: 'stars', name: '记忆恒星', sub: '总览' }] },
+  { label: '资料', spaces: [
+    { key: 'archive', name: '原文档案馆', sub: '阅读' },
+    { key: 'graph', name: '人物星图', sub: '人物' },
+    { key: 'river', name: '时间之河', sub: '时间线' },
+    { key: 'themes', name: '主题域', sub: '十域' },
+    { key: 'voices', name: '他者之声', sub: '问卷' },
+  ] },
+  { label: '书稿', spaces: [{ key: 'study', name: '五卷书房', sub: '卷章' }] },
+  { label: '探索', spaces: [{ key: 'museum', name: '意象博物馆', sub: '意象' }] },
+  { label: '治理', spaces: [{ key: 'lighthouse', name: '证据灯塔', sub: '证据' }] },
+] as const;
+
+type SpaceKey = (typeof NAV_GROUPS)[number]['spaces'][number]['key'];
+const SPACE_KEYS = NAV_GROUPS.flatMap(g => g.spaces.map(s => s.key)) as readonly SpaceKey[];
+
+/** 总纲 · 站点目录（Σ 空间一句话导览，v4） */
+const TOC: Record<SpaceKey, { greek: string; name: string; line: string }> = {
+  stars: { greek: 'Σ1', name: '记忆恒星', line: '门厅 · 全库丰碑与工作台' },
+  river: { greek: 'Σ2', name: '时间之河', line: '1990–2032 人生长卷，时间之船可自动巡航' },
+  graph: { greek: 'Σ3', name: '人物星图', line: '亲密度四环星座 · 星表可检索' },
+  study: { greek: 'Σ4', name: '五卷书房', line: '卷章骨架与章节材料链（卷二卷三绝密）' },
+  themes: { greek: 'Σ5', name: '主题域', line: '九大域陈列全库公开文档' },
+  museum: { greek: 'Σ6', name: '意象博物馆', line: '主意象常设展与候选素牌' },
+  archive: { greek: 'Σ7', name: '原文档案馆', line: '全部原文阅读 · 锚点直达' },
+  voices: { greek: 'Σ8', name: '他者之声', line: '问卷精选对照（V1–V3 三轮采集）' },
+  lighthouse: { greek: 'Σ9', name: '证据灯塔', line: '证据分级与全库审计' },
+};
+
+type Route =
+  | { v: 'space'; key: SpaceKey }
+  | { v: 'doc'; path: string; h?: string }
+  | { v: 'person'; id: number }
+  | { v: 'imagery'; id: number }
+  | { v: 'volume'; code: string }
+  | { v: 'foreshadow' }
+  | { v: 'chapter'; code: string; seq: number };
+
+const routeId = (r: Route) =>
+  r.v === 'space' ? `space:${r.key}`
+  : r.v === 'doc' ? `doc:${r.path}${r.h ? `#${r.h}` : ''}`
+  : r.v === 'person' ? `person:${r.id}`
+  : r.v === 'imagery' ? `imagery:${r.id}`
+  : r.v === 'volume' ? `volume:${r.code}`
+  : r.v === 'foreshadow' ? 'foreshadow'
+  : `chapter:${r.code}:${r.seq}`;
+
+const hashToRoute = (): Route => {
+  const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
+  const [head, tail] = [h.split('/')[0], h.split('/').slice(1).join('/')];
+  if (head === 'doc' && tail) {
+    const qi = tail.indexOf('?h=');
+    const path = qi >= 0 ? tail.slice(0, qi) : tail;
+    const h2 = qi >= 0 ? tail.slice(qi + 3) : '';
+    return { v: 'doc', path, h: h2 || undefined };
+  }
+  if (head === 'person' && /^\d+$/.test(tail)) return { v: 'person', id: +tail };
+  if (head === 'imagery' && /^\d+$/.test(tail)) return { v: 'imagery', id: +tail };
+  if (head === 'volume' && tail) return { v: 'volume', code: tail.toUpperCase() };
+  const cm = tail.match(/^([A-Za-z0-9]+)\/(\d+)$/);
+  if (head === 'chapter' && cm) return { v: 'chapter', code: cm[1].toUpperCase(), seq: +cm[2] };
+  if (head === 'foreshadow') return { v: 'foreshadow' };
+  if (head === 'space' && (SPACE_KEYS as readonly string[]).includes(tail)) return { v: 'space', key: tail as SpaceKey };
+  return { v: 'space', key: 'stars' };
+};
+const routeToHash = (r: Route) =>
+  r.v === 'space' ? `#/space/${r.key}`
+  : r.v === 'doc' ? `#/doc/${encodeURIComponent(r.path)}${r.h ? `?h=${encodeURIComponent(r.h)}` : ''}`
+  : r.v === 'person' ? `#/person/${r.id}`
+  : r.v === 'imagery' ? `#/imagery/${r.id}`
+  : r.v === 'chapter' ? `#/chapter/${r.code}/${r.seq}`
+  : r.v === 'foreshadow' ? '#/foreshadow'
+  : `#/volume/${r.code}`;
+
+/* 每条路由的阅读位置（v4 · A3 起跨会话持久化：localStorage，LRU 上限 80 条） */
+const SCROLL_KEY = 'mneme-scroll';
+const loadScrollMemo = (): Map<string, number> => {
+  try {
+    const o: unknown = JSON.parse(localStorage.getItem(SCROLL_KEY) || '{}');
+    if (o && typeof o === 'object') {
+      return new Map(Object.entries(o as Record<string, unknown>).map(([k, v]) => [k, Number(v) || 0]));
+    }
+  } catch { /* 首访/损坏/隐私模式 → 空表 */ }
+  return new Map();
+};
+const scrollMemo = loadScrollMemo();
+const persistScroll = () => {
+  try {
+    while (scrollMemo.size > 80) {
+      const k = scrollMemo.keys().next().value;
+      if (k === undefined) break;
+      scrollMemo.delete(k);
+    }
+    localStorage.setItem(SCROLL_KEY, JSON.stringify(Object.fromEntries(scrollMemo)));
+  } catch { /* 存储不可用时静默降级为会话内存 */ }
+};
+
+export default function App() {
+  const [gateDone, setGateDone] = useState(() => sessionStorage.getItem('mneme-gate') === '1');
+  const [annoOpen, setAnnoOpen] = useState(() => sessionStorage.getItem('mneme-gate') === '1' && !sessionStorage.getItem('mneme-anno'));
+  useEffect(() => {
+    immLevel(); // v4 · 沉浸光感：ADAPTIVE 档位探测
+    watchFps();  // v5.1 · 运行时帧率哨兵：卡顿自动降档
+  }, []);
+  useEffect(() => {
+    if (!gateDone) return;
+    const host = document.querySelector('.space-host') as HTMLElement | null;
+    const nav = document.getElementById('topNav');
+    if (!host || !nav) return;
+    const offBlur = bindGradientBlur(host, nav);
+    const offRipple = bindPressRipple(document.body);
+    return () => { offBlur(); offRipple(); };
+  }, [gateDone]);
+  const [ov, setOv] = useState<Overview | null>(null);
+  const [route, setRoute] = useState<Route>(() => hashToRoute());
+  const [riverFocus, setRiverFocus] = useState<{ year: number; eventId?: number } | null>(null);
+  const [ckOpen, setCkOpen] = useState(false);
+  const [tocOpen, setTocOpen] = useState(false);
+  const [foCount, setFoCount] = useState<number | null>(null);
+  const [theme, setTheme] = useState<'paper' | 'night'>(() => {
+    const saved = localStorage.getItem('mneme-theme');
+    if (saved === 'night' || saved === 'paper') return saved;
+    return matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'paper';
+  });
+  const mainRef = useRef<HTMLElement>(null);
+  const firstPaint = useRef(true);
+  const routeRef = useRef(route);
+  routeRef.current = route;
+
+  useEffect(() => {
+    const load = () => api.overview().then(setOv).catch(e => notify(apiErrorMessage(e), 'error'));
+    load();
+    const onUnlocked = () => { setFoCount(null); load(); };
+    window.addEventListener('mneme:unlocked', onUnlocked);
+    return () => window.removeEventListener('mneme:unlocked', onUnlocked);
+  }, []);
+
+  /* 文档标题跟随路由（原先全站恒定「ΜΝΗΜΗ · 刘佑林的前半生」，多标签页/历史记录无法区分） */
+  useEffect(() => {
+    const name = route.v === 'space' ? TOC[route.key]?.name
+      : route.v === 'doc' ? decodeURIComponent(route.path).split('/').pop()?.replace(/\.md$/i, '')
+      : route.v === 'person' ? '人物'
+      : route.v === 'imagery' ? '意象'
+      : route.v === 'volume' ? route.code
+      : route.v === 'chapter' ? `章节 ${route.code}-${route.seq}`
+      : '伏应矩阵';
+    document.title = name ? `${name} · ΜΝΗΜΗ` : 'ΜΝΗΜΗ · 刘佑林的前半生';
+  }, [route]);
+
+  /* 总纲里的伏应条数接数据源（原先硬编码「25 条」，台账增删后必然过期） */
+  useEffect(() => {
+    if (!tocOpen || foCount != null) return;
+    /* 静默可接受：只是总纲里的一句装饰性计数，失败时渲染层已有
+       「伏笔—回收跨卷配对图（创作台账）」无数字兜底（见下方 TOC 渲染），
+       为此弹提示反而更吵。 */
+    api.foreshadow().then(rows => setFoCount(rows.length)).catch(() => {});
+  }, [tocOpen, foCount]);
+
+  /* ---------- hash 路由：导航只写 hash，hashchange 统一应用 ---------- */
+  useEffect(() => {
+    const apply = () => setRoute(hashToRoute());
+    if (!location.hash) history.replaceState(null, '', routeToHash(routeRef.current));
+    window.addEventListener('hashchange', apply);
+    return () => window.removeEventListener('hashchange', apply);
+  }, []);
+
+  /* 空间切换动画（首挂载跳过；v3.3 收窄至 260ms——审查预算：面板切换 180–260ms，操作感优先于展陈） */
+  useEffect(() => {
+    if (!gateDone || !mainRef.current) return;
+    if (firstPaint.current) { firstPaint.current = false; return; }
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches || !readPrefs().motion) return;
+    animate(mainRef.current, { opacity: [0, 1], translateY: [10, 0], duration: 260, ease: 'outExpo' });
+  }, [route, gateDone]);
+
+  /* 阅读位置：切换前记下当前路由的滚动，应用后恢复目标路由的滚动（A3：节流持久化） */
+  useEffect(() => {
+    const host = mainRef.current;
+    if (!host) return;
+    const prevId = routeId(routeRef.current);
+    let timer = 0;
+    const onScroll = () => {
+      scrollMemo.set(prevId, host.scrollTop);
+      clearTimeout(timer);
+      timer = window.setTimeout(persistScroll, 500);
+    };
+    host.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      host.removeEventListener('scroll', onScroll);
+      clearTimeout(timer);
+      scrollMemo.set(routeId(route), host.scrollTop);
+      persistScroll();
+    };
+  }, [route, gateDone]);
+  useEffect(() => {
+    const host = mainRef.current;
+    if (!host || !gateDone) return;
+    if (route.v === 'doc' && route.h) return; // 锚点深链：跳过位置恢复，交给锚点定位滚动
+    const saved = scrollMemo.get(routeId(route));
+    host.scrollTop = saved ?? 0;
+  }, [route, gateDone]);
+
+  /* ⌘K / Ctrl+K 全局唤起 */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setCkOpen(v => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  /* 主题持久化 + <html data-theme> 挂载（M6 双主题） */
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'night') root.setAttribute('data-theme', 'night');
+    else root.removeAttribute('data-theme');
+    localStorage.setItem('mneme-theme', theme);
+  }, [theme]);
+
+  /* v3.5 导航溢出提示：实测 scrollWidth>clientWidth 才挂 .scrolls（右缘渐隐）。
+     ResizeObserver 跟随视口与内容宽度变化；阈值随导航实际宽度浮动，不用媒体断点。 */
+  useEffect(() => {
+    if (!gateDone) return;
+    const el = document.querySelector('.nav-spaces') as HTMLElement | null;
+    if (!el) return;
+    const check = () => el.classList.toggle('scrolls', el.scrollWidth > el.clientWidth + 1);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    window.addEventListener('resize', check);
+    return () => { ro.disconnect(); window.removeEventListener('resize', check); };
+  }, [gateDone]);
+
+  /* Liquid Glass（M6.5）：置换能力行为级探测 + 鼠标跟随光（rAF 节流委托）
+     探测元素必须先附着 DOM——游离元素的 getComputedStyle 返回空串，曾致 Chromium 误判无置换 */
+  useEffect(() => {
+    const probe = document.createElement('div');
+    probe.style.backdropFilter = 'url(#x) blur(2px)';
+    probe.style.display = 'none';
+    document.body.appendChild(probe);
+    const displacementOk = /url/.test(getComputedStyle(probe).backdropFilter || '');
+    probe.remove();
+    document.documentElement.classList.toggle('lg-displacement', displacementOk);
+
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let raf = 0;
+    const onMove = (e: PointerEvent) => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const t = (e.target as Element | null)?.closest?.('.glass') as HTMLElement | null;
+        if (!t) return;
+        const r = t.getBoundingClientRect();
+        t.style.setProperty('--mx', `${e.clientX - r.left}px`);
+        t.style.setProperty('--my', `${e.clientY - r.top}px`);
+      });
+    };
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  const enter = () => {
+    sessionStorage.setItem('mneme-gate', '1');
+    setGateDone(true);
+    if (!sessionStorage.getItem('mneme-anno')) setAnnoOpen(true); // v4 · 致谢公告：每次会话首次进入弹一次
+  };
+
+  /* ---------- 导航：只写 hash，路由状态由 hashchange 统一应用 ---------- */
+  const go = useCallback((r: Route) => {
+    const h = routeToHash(r);
+    if (location.hash === h) setRoute(r); else location.hash = h;
+  }, []);
+  const openDoc = useCallback((p: string, h?: string) => { if (p) go({ v: 'doc', path: p, h }); }, [go]);
+  const openPerson = useCallback((id: number) => go({ v: 'person', id }), [go]);
+  const openImagery = useCallback((id: number) => go({ v: 'imagery', id }), [go]);
+  const openVolume = useCallback((code: string) => go({ v: 'volume', code }), [go]);
+  const openChapter = useCallback((code: string, seq: number) => go({ v: 'chapter', code, seq }), [go]);
+  const openSpace = useCallback((key: SpaceKey) => go({ v: 'space', key }), [go]);
+  const openRiver = useCallback((year?: number, eventId?: number) => {
+    setRiverFocus(year != null ? { year, eventId } : null);
+    go({ v: 'space', key: 'river' });
+  }, [go]);
+  /* v8 · 3.3 五向互链：检查器的「域 / 学段」两个跳转目标需要先设焦点再切空间 */
+  const [themesFocus, setThemesFocus] = useState<string | null>(null);
+  const openDomain = useCallback((name: string) => {
+    setThemesFocus(name);
+    go({ v: 'space', key: 'themes' });
+  }, [go]);
+  const openStage = useCallback((stage: string) => {
+    const y = stageAnchorYear(stage);
+    if (y != null) openRiver(y);
+  }, [openRiver]);
+
+  const spaceKey: SpaceKey = route.v === 'space' ? route.key : route.v === 'doc' ? 'archive' : route.v === 'person' ? 'graph' : route.v === 'imagery' ? 'museum' : 'study';
+
+  return (
+    <>
+      <div className="paper-field" />
+
+      {/* Liquid Glass 位移滤镜（v3.4）：feTurbulence + feDisplacementMap 的真实折射
+          —— liquid-glass.css 引用 url('#mneme-glass')，此前滤镜不存在（Chromium 下整条声明被丢弃）。
+          仅 .lg-displacement（App 行为探测）生效：Chromium 折射，Safari/Firefox 退回纯模糊。 */}
+      <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden focusable="false">
+        <filter id="mneme-glass" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.9 0.9" numOctaves="2" seed="7" result="noise" />
+          <feGaussianBlur in="noise" stdDeviation="1.6" result="soft" />
+          <feDisplacementMap in="SourceGraphic" in2="soft" scale="9" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+      </svg>
+
+      {!gateDone && <Gate onDone={enter} />}
+
+      {gateDone && (
+        <>
+          {annoOpen && <Announce onClose={() => setAnnoOpen(false)} />}
+          <header className="nav glass" id="topNav">
+            <div className="nav-brand">
+              <span className="greek nav-greek">ΜΝΗΜΗ</span>
+              <span className="nav-sep" />
+              <span className="nav-sub">刘佑林的前半生 · 数字传记装置</span>
+            </div>
+            <nav className="nav-spaces" aria-label="空间导航">
+              {NAV_GROUPS.map(g => (
+                <div key={g.label} className={`nav-group ${g.spaces.some(s => spaceKey === s.key) ? 'on' : ''}`}>
+                  <span className="nav-group-label">{g.label}</span>
+                  <div className="nav-group-row">
+                    {g.spaces.map(s => (
+                      <button
+                        key={s.key}
+                        className={`nav-space ${spaceKey === s.key ? 'on' : ''}`}
+                        onClick={() => openSpace(s.key)}
+                        title={s.name}
+                      >
+                        <span className="nav-space-name">{s.name}</span>
+                        <span className="nav-space-sub">{s.sub}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </nav>
+            <button
+              className="nav-logout"
+              aria-label="退出本次访问"
+              title="退出本次访问"
+              onClick={() => { window.location.href = '/api/logout'; }}
+            >
+              离场
+            </button>
+            <button
+              className="nav-theme"
+              aria-label={theme === 'night' ? '切换到纸色主题' : '切换到墨夜主题'}
+              title={theme === 'night' ? '回到纸色' : '入墨夜'}
+              onClick={() => setTheme(t => (t === 'night' ? 'paper' : 'night'))}
+            >
+              {theme === 'night' ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                  <circle cx="12" cy="12" r="4.4" />
+                  <path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3L17 7M7 17l-1.7 1.7" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20.2 14.5A8.3 8.3 0 0 1 9.5 3.8a8.3 8.3 0 1 0 10.7 10.7Z" />
+                </svg>
+              )}
+            </button>
+          </header>
+
+          <main ref={mainRef} className="space-host">
+            {/* 空间级错误边界：任一空间组件抛异常只坏这一块，导航与其余空间仍可用（原先整页白屏） */}
+            <ErrorBoundary resetKey={routeId(route)} label={TOC[spaceKey]?.name}>
+            {spaceKey === 'stars' && (
+              <Stars
+                overview={ov}
+                theme={theme}
+                onEnterRiver={() => openSpace('river')}
+                onOpenChapter={openChapter}
+                onOpenDoc={openDoc}
+                onEnterLighthouse={() => openSpace('lighthouse')}
+                onOpenPerson={openPerson}
+              />
+            )}
+            {spaceKey === 'river' && <Lazy><River onOpenDoc={openDoc} focus={riverFocus} onFocusDone={() => setRiverFocus(null)} /></Lazy>}
+            {spaceKey === 'graph' && (
+              <Lazy>
+                <Graph
+                  theme={theme}
+                  focusPersonId={route.v === 'person' ? route.id : null}
+                  onOpenDoc={openDoc}
+                  onClearFocus={() => { if (route.v === 'person') go({ v: 'space', key: 'graph' }); }}
+                />
+              </Lazy>
+            )}
+            {spaceKey === 'archive' && (
+              <Lazy>
+                <Archive
+                  path={route.v === 'doc' ? route.path : '00-知识库首页'}
+                  anchor={route.v === 'doc' ? route.h : undefined}
+                  onNavigate={openDoc} onOpenPerson={openPerson}
+                  onOpenVolume={openVolume} onOpenDomain={openDomain} onOpenStage={openStage}
+                  onOpenImagery={openImagery} onOpenEvent={openRiver}
+                />
+              </Lazy>
+            )}
+            {spaceKey === 'study' && (
+              <Lazy>
+                <Study
+                  onOpenDoc={openDoc} onOpenPerson={openPerson} onOpenImagery={openImagery}
+                  onOpenChapter={openChapter}
+                  focusVolume={route.v === 'volume' || route.v === 'chapter' ? route.code : null}
+                />
+              </Lazy>
+            )}
+            {spaceKey === 'museum' && (
+              <Lazy>
+                <Museum focusId={route.v === 'imagery' ? route.id : null} onClearFocus={() => { if (route.v === 'imagery') go({ v: 'space', key: 'museum' }); }} onOpenDoc={openDoc} />
+              </Lazy>
+            )}
+            {spaceKey === 'voices' && <Lazy><Voices onOpenDoc={openDoc} overview={ov} /></Lazy>}
+            {spaceKey === 'themes' && (
+              <Lazy>
+                <Themes
+                  onOpenDoc={openDoc} onOpenPerson={openPerson}
+                  focusDomain={themesFocus}
+                  onFocusDone={() => setThemesFocus(null)}
+                />
+              </Lazy>
+            )}
+            {spaceKey === 'lighthouse' && <Lazy><Lighthouse overview={ov} /></Lazy>}
+            </ErrorBoundary>
+          </main>
+
+          <button className="toc-hint glass" onClick={() => setTocOpen(true)}>
+            <span className="greek">ΓΡΑΜΜΗ</span> 总纲
+          </button>
+          <button className="ck-hint glass" onClick={() => setCkOpen(true)}>
+            <span className="greek">⌘K</span> 检索全库
+          </button>
+
+          {/* v3.4 · P3 章节材料链面板（路由驱动：#/chapter/V3/3；关闭回书房，浏览器返回同效） */}
+          {route.v === 'chapter' && (
+            <Lazy>
+              <ChapterPanel
+                code={route.code} seq={route.seq}
+                onClose={() => go({ v: 'space', key: 'study' })}
+                onOpenDoc={openDoc} onOpenImagery={openImagery}
+              />
+            </Lazy>
+          )}
+
+          <CommandK
+            open={ckOpen} onClose={() => setCkOpen(false)}
+            onOpenDoc={openDoc} onOpenPerson={openPerson} onOpenRiver={openRiver}
+            onOpenImagery={openImagery} onOpenVolume={openVolume} onOpenChapter={openChapter}
+          />
+
+          {route.v === 'foreshadow' && (
+            <Lazy>
+              <Foreshadow onClose={() => go({ v: 'space', key: 'study' })} />
+            </Lazy>
+          )}
+
+          <SecretGate />
+          <Wellness onGoSpace={k => openSpace(k as SpaceKey)} />
+          <BGM />
+
+          {tocOpen && (
+            <div className="toc-mask" onMouseDown={() => setTocOpen(false)}>
+              <div className="toc glass" onMouseDown={e => e.stopPropagation()}>
+                <header className="toc-head">
+                  <p className="greek toc-kicker">ΠΕΡΙΗΓΗΣΙΣ · 总纲</p>
+                  <h3>全馆导览</h3>
+                  <button className="gp-sheet-x" onClick={() => setTocOpen(false)} aria-label="关闭">×</button>
+                </header>
+                <div className="toc-list">
+                  {NAV_GROUPS.map(g => (
+                    <section key={g.label} className="toc-group">
+                      <h4>{g.label}</h4>
+                      {g.spaces.map(s => (
+                        <button key={s.key} className="toc-item" onClick={() => { setTocOpen(false); openSpace(s.key); }}>
+                          <span className="greek toc-g">{TOC[s.key].greek}</span>
+                          <b>{TOC[s.key].name}</b>
+                          <span className="toc-line">{TOC[s.key].line}</span>
+                        </button>
+                      ))}
+                    </section>
+                  ))}
+                </div>
+                <button className="toc-item fo-entry" onClick={() => { setTocOpen(false); go({ v: 'foreshadow' }); }}>
+                  <span className="greek toc-g">ΠΡΟ</span>
+                  <b>伏应矩阵</b>
+                  <span className="toc-line">{foCount == null ? '伏笔—回收跨卷配对图（创作台账）' : `${foCount} 条伏笔—回收跨卷配对图（创作台账）`}</span>
+                </button>
+                <footer className="toc-foot">⌘K 检索全库 · 双击时间之河起航 · 绝密档案需解锁</footer>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+}

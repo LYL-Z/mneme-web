@@ -1,0 +1,63 @@
+name: mneme-verify
+
+# ΜΝΗΜΗ 最小 CI 门禁
+# 目的：把「类型 / 构建 / 隐私红线」三件事锁进自动化，避免只靠人肉记得跑。
+#
+# 注意：ingest/mneme.db 已被 .gitignore 排除（含私密原文，禁止入库），
+# 所以隐私红线测试在「没有库」的 CI 环境里会自动跳过并打印告警——
+# 真正跑红线请在有库的机器上本地执行，或用 CI secret 注入 MNEME_DB 后开启。
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  web:
+    name: typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # node:sqlite 需 ≥22.5 且带 --experimental-sqlite；22.22 已实测可用
+          node-version: '22.22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      # 构建产物自检：sync:dist 会把孤儿清干净，这里顺带验证白名单非空
+      - run: npm run sync:dist
+
+  privacy:
+    name: 隐私红线（有库才跑）
+    runs-on: ubuntu-latest
+    continue-on-error: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22'
+      - name: 检查是否存在可校验的数据库
+        id: hasdb
+        run: |
+          if [ -f "ingest/mneme.db" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::未找到 ingest/mneme.db —— 跳过隐私红线测试（该库含私密原文，已 gitignore）"
+          fi
+      - name: 数据库级隐私结构测试
+        if: steps.hasdb.outputs.found == 'true'
+        run: node --experimental-sqlite ingest/test-privacy.mjs
+      - name: API 级隐私红线测试
+        if: steps.hasdb.outputs.found == 'true'
+        env:
+          MNEME_DB: ingest/mneme.db
+          MNEME_TOKEN: ci-verify
+        run: node --experimental-sqlite ingest/test-api-privacy.mjs
