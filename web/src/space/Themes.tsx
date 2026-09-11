@@ -21,6 +21,8 @@ const DOMAIN_META: Record<string, string> = {
 };
 
 const STAGE_ORDER = ['小学', '初中', '高中', '大学', '家庭', '跨学段'];
+const PAGE = 80;
+const HARD_CAP = 500;
 
 export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
   onOpenDoc: (path: string) => void;
@@ -32,6 +34,8 @@ export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
   const [stats, setStats] = useState<DomainStat[]>([]);
   const [cur, setCur] = useState<DomainDocs | null>(null);
   const [stage, setStage] = useState<string>('全部');
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState<'mtime' | 'title' | 'stage'>('mtime');
   const [loading, setLoading] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -46,13 +50,32 @@ export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
     if (cur?.domain === name) { setCur(null); return; }
     setLoading(true);
     setStage('全部');
-    const d = await api.domainDocs(name, 200).catch((e: unknown) => {
+    setQ('');
+    setSort('mtime');
+    const d = await api.domainDocs(name, PAGE, 0).catch((e: unknown) => {
       if (e instanceof ApiError && e.status === 403) window.dispatchEvent(new CustomEvent('mneme:locked'));
       else notify(apiErrorMessage(e), 'error');
       return null;
     });
     setLoading(false);
     if (d) setCur(d);
+  };
+
+  const loadMore = async () => {
+    if (!cur) return;
+    const remain = Math.min(HARD_CAP, cur.total) - cur.docs.length;
+    if (remain <= 0) return;
+    setLoading(true);
+    const more = await api.domainDocs(cur.domain, Math.min(PAGE, remain), cur.docs.length).catch((e: unknown) => {
+      if (e instanceof ApiError && e.status === 403) window.dispatchEvent(new CustomEvent('mneme:locked'));
+      else notify(apiErrorMessage(e), 'error');
+      return null;
+    });
+    setLoading(false);
+    if (more) setCur(prev => {
+      if (!prev || prev.domain !== more.domain) return prev;
+      return { ...more, docs: [...prev.docs, ...more.docs], topPersons: prev.topPersons };
+    });
   };
 
   /* 跨空间聚焦：等 domains 统计就绪后再展开，避免数据未到就放弃 */
@@ -71,7 +94,7 @@ export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
     });
   }, [stats.length]);
 
-  /* 文体构成：从取回的档案聚合（上限 200 份，占比仍能说明构成） */
+  /* 文体构成：从已加载档案聚合（可分页至 500 份） */
   const typeBreak = useMemo(() => {
     if (!cur) return [];
     const m = new Map<string, number>();
@@ -88,9 +111,22 @@ export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
   }, [cur]);
   const shownDocs = useMemo(() => {
     if (!cur) return [];
-    if (stage === '全部') return cur.docs;
-    return cur.docs.filter(d => d.stage === stage);
-  }, [cur, stage]);
+    let list = stage === '全部' ? cur.docs : cur.docs.filter(d => d.stage === stage);
+    const needle = q.trim().toLowerCase();
+    if (needle) {
+      list = list.filter(d =>
+        d.title.toLowerCase().includes(needle)
+        || (d.doc_type || '').toLowerCase().includes(needle)
+        || (d.stage || '').toLowerCase().includes(needle)
+        || (d.volume || '').toLowerCase().includes(needle),
+      );
+    }
+    const copy = [...list];
+    if (sort === 'title') copy.sort((a, b) => a.title.localeCompare(b.title, 'zh'));
+    else if (sort === 'stage') copy.sort((a, b) => (a.stage || '').localeCompare(b.stage || '', 'zh') || a.title.localeCompare(b.title, 'zh'));
+    else copy.sort((a, b) => String(b.mtime).localeCompare(String(a.mtime)));
+    return copy;
+  }, [cur, stage, q, sort]);
 
   const maxN = Math.max(1, ...stats.map(s => s.n));
 
@@ -98,14 +134,14 @@ export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
     <div className="th" ref={rootRef}>
       <header className="th-head">
         <p className="greek th-kicker">ΧΩΡΟΙ · Σ5</p>
-        <h2>主题域</h2>
+        <h1>主题域</h1>
         <p className="th-sub">{stats.length} 个域陈列全库 {stats.reduce((s, d) => s + d.n, 0)} 份文档。</p>
       </header>
       <div className="th-grid">
         {stats.map(s => (
           <button
             key={s.domain}
-            className={`th-card glass ${cur?.domain === s.domain ? 'on' : ''}`}
+            className={`th-card surface ${cur?.domain === s.domain ? 'on' : ''}`}
             onClick={() => openDomain(s.domain)}
           >
             <b>{s.domain}</b>
@@ -119,13 +155,13 @@ export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
       </div>
       {loading && <p className="th-loading">开柜取卷…</p>}
       {cur && (
-        <section className="th-detail glass">
-          <h3>{cur.domain}<span> · {cur.total} 份（列最近 {cur.docs.length}）</span></h3>
+        <section className="th-detail surface">
+          <h2>{cur.domain}<span> · {cur.total} 份（已列 {cur.docs.length}{cur.total > HARD_CAP ? `，最多 ${HARD_CAP}` : ''}）</span></h2>
           {DOMAIN_META[cur.domain] && <p className="th-detail-desc">{DOMAIN_META[cur.domain]}</p>}
 
           {cur.topPersons.length > 0 && (
             <div className="th-persons">
-              <h4>域内高频人物</h4>
+              <h3>域内高频人物</h3>
               <div className="study-chips">
                 {cur.topPersons.map(p => (
                   <button key={p.id} onClick={() => onOpenPerson(p.id)} title={`${p.relation_group} · 被提及 ${p.hits} 次`}>
@@ -138,7 +174,7 @@ export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
 
           {typeBreak.length > 0 && (
             <div className="th-types">
-              <h4>文体构成</h4>
+              <h3>文体构成</h3>
               <div className="th-typebar" aria-hidden>
                 {typeBreak.map(([t, n]) => (
                   <i key={t} title={`${t} · ${n}`} style={{ flex: n }} />
@@ -152,7 +188,7 @@ export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
 
           {stageBreak.length > 0 && (
             <div className="th-types">
-              <h4>学段分布 · 点筛</h4>
+              <h3>学段分布 · 点筛</h3>
               <div className="th-typebar" aria-hidden>
                 {stageBreak.map(([s2, n]) => <i key={s2} title={`${s2} · ${n}`} style={{ flex: n }} />)}
               </div>
@@ -165,6 +201,22 @@ export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
             </div>
           )}
 
+          <div className="th-tools">
+            <input
+              className="th-q"
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              placeholder="筛选已列出的标题、文体、学段"
+              aria-label="筛选已列出的档案"
+            />
+            <div className="th-sort" role="group" aria-label="排序">
+              <button type="button" className={sort === 'mtime' ? 'on' : ''} onClick={() => setSort('mtime')}>近改</button>
+              <button type="button" className={sort === 'title' ? 'on' : ''} onClick={() => setSort('title')}>标题</button>
+              <button type="button" className={sort === 'stage' ? 'on' : ''} onClick={() => setSort('stage')}>学段</button>
+            </div>
+          </div>
+          <p className="th-tools-hint">只筛已加载的 {cur.docs.length} 份，不是全库检索。条数不是重要程度。</p>
+
           <ul className="th-docs">
             {shownDocs.map(d => (
               <li key={d.path}>
@@ -176,6 +228,11 @@ export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
             ))}
           </ul>
           {shownDocs.length === 0 && <p className="th-loading">此筛选下暂无档案。</p>}
+          {stage === '全部' && cur.docs.length < Math.min(cur.total, HARD_CAP) && (
+            <button className="th-more" onClick={loadMore} disabled={loading}>
+              {loading ? '取卷中…' : `继续列出 · 还有 ${Math.min(cur.total, HARD_CAP) - cur.docs.length} 份`}
+            </button>
+          )}
         </section>
       )}
     </div>

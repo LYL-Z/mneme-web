@@ -4,6 +4,8 @@ import { ApiError, api, apiErrorMessage, headingSlug, type DocFull } from '../ap
 import { getRecentDocs, recordDoc } from '../history';
 import { evidenceLabel } from '../evidenceKind';
 import { stageAnchorYear } from '../stages';
+import { paintEvidenceSpans, focusEvidence, recalledEvidence, highlightQuery, clearQueryMarks } from '../highlightSnippet';
+import { ensureCjkSerif } from '../fontsCjk';
 import { notify } from '../toast';
 
 /**
@@ -20,18 +22,24 @@ const md = new MarkdownIt({ html: true, linkify: false, breaks: true });
 const escHtml = (s: string) =>
   s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
 
-/** [[目标|别名]] / [[目标]] → 真实内链（#/doc/…，事件委托接管点击） */
+/** [[目标|别名]] / [[目标]] → 真实内链（/doc/…，事件委托接管点击） */
 const renderWiki = (src: string) =>
   src.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, t: string, l?: string) => {
     const target = t.trim();
     const label = (l || target).trim();
-    return `<a class="wl" href="#/doc/${encodeURIComponent(target)}" data-wl="${escHtml(target)}" title="${escHtml(target)}">${escHtml(label)}</a>`;
+    return `<a class="wl" href="/doc/${encodeURIComponent(target)}" data-wl="${escHtml(target)}" title="${escHtml(target)}">${escHtml(label)}</a>`;
   });
 
-/** 标题锚点：为 h1–h6 注入 id（去重表走 render env——每次渲染独立，双栏互不干扰） */
+/** 工作区已有文题 h1。正文标题整体 +1，避免 h1 叠 h1、h1 后直接 h3。 */
+const bumpHeading = (tag: string) => {
+  const n = Number(tag.slice(1));
+  return Number.isFinite(n) && n >= 1 && n < 6 ? `h${n + 1}` : tag;
+};
 {
   const open = md.renderer.rules.heading_open;
+  const close = md.renderer.rules.heading_close;
   md.renderer.rules.heading_open = (tokens, idx, opts, env, self) => {
+    tokens[idx].tag = bumpHeading(tokens[idx].tag);
     const text = tokens[idx + 1]?.type === 'inline' ? tokens[idx + 1].content : '';
     const base = headingSlug(text);
     const e = (env ?? {}) as { used?: Map<string, number> };
@@ -40,6 +48,10 @@ const renderWiki = (src: string) =>
     used.set(base, n + 1);
     tokens[idx].attrSet('id', n === 0 ? base : `${base}-${n}`);
     return open ? open(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
+  };
+  md.renderer.rules.heading_close = (tokens, idx, opts, env, self) => {
+    tokens[idx].tag = bumpHeading(tokens[idx].tag);
+    return close ? close(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
   };
 }
 
@@ -75,22 +87,26 @@ export interface DocHeading { id: string; text: string; level: number; el: HTMLE
 
 /* ---------------- DocPane：单篇文档渲染单元 ---------------- */
 
-function DocPane({ path, anchor, compact, track, onNavigate, onOpenPerson, onHeadings, onDocMeta }: {
+function DocPane({ path, anchor, evidenceId, query, compact, track, onNavigate, onOpenPerson, onHeadings, onDocMeta, onEvidenceFocus, onEvidenceLoci }: {
   path: string;
   anchor?: string;
+  evidenceId?: number;
+  query?: string;
   compact?: boolean;
   track?: boolean;
   onNavigate: (path: string) => void;
   onOpenPerson: (id: number) => void;
   onHeadings?: (hs: DocHeading[]) => void;
   onDocMeta?: (d: DocFull) => void;
+  onEvidenceFocus?: (id: number) => void;
+  onEvidenceLoci?: (m: Record<number, { heading: string; para: string }>) => void;
 }) {
   const [state, setState] = useState<ReadState>({ s: 'loading' });
   const [retry, setRetry] = useState(0);
   const bodyRef = useRef<HTMLDivElement>(null);
   const seqRef = useRef(0);
-  const cbRef = useRef({ onHeadings, onDocMeta });
-  cbRef.current = { onHeadings, onDocMeta };
+  const cbRef = useRef({ onHeadings, onDocMeta, onEvidenceFocus, onEvidenceLoci });
+  cbRef.current = { onHeadings, onDocMeta, onEvidenceFocus, onEvidenceLoci };
 
   useEffect(() => {
     const seq = ++seqRef.current;
@@ -177,7 +193,7 @@ function DocPane({ path, anchor, compact, track, onNavigate, onOpenPerson, onHea
     });
     /* A6 · 段落锚点复制：标题 hover 显示 ¶，点击复制深链 */
     const docPath = state.doc.path;
-    el.querySelectorAll('h1, h2, h3').forEach(h => {
+    el.querySelectorAll('h2, h3, h4').forEach(h => {
       const id = h.id;
       if (!id) return;
       const btn = document.createElement('button');
@@ -188,7 +204,7 @@ function DocPane({ path, anchor, compact, track, onNavigate, onOpenPerson, onHea
       btn.addEventListener('click', ev => {
         ev.preventDefault();
         ev.stopPropagation();
-        const url = `${location.origin}${location.pathname}#/doc/${encodeURIComponent(docPath)}?h=${encodeURIComponent(id)}`;
+        const url = `${location.origin}/doc/${encodeURIComponent(docPath)}?h=${encodeURIComponent(id)}`;
         const done = () => {
           btn.textContent = '✓';
           btn.classList.add('ok');
@@ -210,10 +226,25 @@ function DocPane({ path, anchor, compact, track, onNavigate, onOpenPerson, onHea
     });
     /* 目录回调（TOC 数据源） */
     cbRef.current.onHeadings?.(
-      [...el.querySelectorAll('h1, h2, h3')]
+      [...el.querySelectorAll('h2, h3, h4')]
         .filter(h => h.id)
-        .map(h => ({ id: h.id, text: h.textContent?.replace(/^¶/, '').trim() || '', level: +h.tagName[1], el: h as HTMLElement })),
+        .map(h => ({ id: h.id, text: h.textContent?.replace(/^¶/, '').trim() || '', level: Math.max(1, +h.tagName[1] - 1), el: h as HTMLElement })),
     );
+    if (state.s === 'ok') {
+      paintEvidenceSpans(el, state.doc.evSnippets);
+      const loci: Record<number, { heading: string; para: string }> = {};
+      el.querySelectorAll<HTMLElement>('mark.ev-hl[data-ev-id]').forEach(m => {
+        const id = Number(m.dataset.evId);
+        if (!Number.isFinite(id)) return;
+        loci[id] = { heading: m.dataset.heading || '', para: m.dataset.para || '' };
+      });
+      cbRef.current.onEvidenceLoci?.(loci);
+    }
+    el.querySelectorAll('img').forEach(img => {
+      img.setAttribute('decoding', 'async');
+      if (!img.hasAttribute('loading')) img.setAttribute('loading', 'lazy');
+      if (!img.getAttribute('width') && !img.getAttribute('height')) img.classList.add('ar-img-open');
+    });
   }, [state, html]);
 
   /* 锚点定位：渲染完成后滚动到目标标题并闪烁一次（章节面板材料链落点） */
@@ -236,30 +267,80 @@ function DocPane({ path, anchor, compact, track, onNavigate, onOpenPerson, onHea
     return () => window.clearTimeout(timer);
   }, [anchor, state]);
 
+  /* 证据灯塔 / 深链：渲染完成后滚到片段并聚焦（不拆除其余内联标） */
+  useEffect(() => {
+    if (state.s !== 'ok' || evidenceId == null) return;
+    const snip = state.doc.evSnippets.find(s => s.id === evidenceId)?.snippet || recalledEvidence(evidenceId);
+    let tries = 0;
+    let timer = 0;
+    const find = () => {
+      tries += 1;
+      const root = bodyRef.current;
+      if (root) {
+        const el = focusEvidence(root, { id: evidenceId, snippet: snip });
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+      }
+      if (tries < 20) timer = window.setTimeout(find, 100);
+    };
+    find();
+    return () => window.clearTimeout(timer);
+  }, [evidenceId, state, html]);
+
+  /* 检索词落到正文：与证据标并存。有证据深链或标题锚点时不抢滚动。 */
+  useEffect(() => {
+    const root = bodyRef.current;
+    if (state.s !== 'ok' || !root) return;
+    const needle = (query || '').trim();
+    if (!needle) { clearQueryMarks(root); return; }
+    let tries = 0;
+    let timer = 0;
+    const find = () => {
+      tries += 1;
+      const el = highlightQuery(root, needle);
+      if (el) {
+        if (evidenceId == null && !anchor) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      if (tries < 20) timer = window.setTimeout(find, 100);
+    };
+    find();
+    return () => window.clearTimeout(timer);
+  }, [query, evidenceId, anchor, state, html]);
+
   const onBodyClick = (e: React.MouseEvent) => {
+    const mark = (e.target as HTMLElement).closest('mark.ev-hl') as HTMLElement | null;
+    if (mark?.dataset.evId) {
+      const id = +mark.dataset.evId;
+      if (bodyRef.current) focusEvidence(bodyRef.current, { id });
+      cbRef.current.onEvidenceFocus?.(id);
+      return;
+    }
     const t = (e.target as HTMLElement).closest('a.wl') as HTMLAnchorElement | null;
     if (t) { e.preventDefault(); onNavigate(t.dataset.wl || ''); }
   };
   const onRetry = () => setRetry(n => n + 1);
 
   if (state.s === 'miss') return (
-    <div className="ar-miss glass">
+    <div className="ar-miss surface">
       <p className="greek ar-miss-greek">ΜΗ ΕΥΡΕΘΗΚΕ</p>
-      <h3>未收录，或已隔离</h3>
+      <h2>未收录，或已隔离</h2>
       <p className="ar-miss-sub">该页面不在公开层——它可能尚未建立，也可能属于被精心守护的部分。</p>
     </div>
   );
   if (state.s === 'lock') return (
-    <div className="ar-miss glass">
+    <div className="ar-miss surface">
       <p className="greek ar-miss-greek">ΑΠΟΡΡΗΤΟΝ</p>
-      <h3>此为绝密档案</h3>
+      <h2>此为绝密档案</h2>
       <p className="ar-miss-sub">它被单独封存——输入管理员密码后即可开启。</p>
     </div>
   );
   if (state.s === 'net') return (
-    <div className="ar-miss glass">
+    <div className="ar-miss surface">
       <p className="greek ar-miss-greek">ΔΙΚΤΥΟ</p>
-      <h3>网络异常</h3>
+      <h2>网络异常</h2>
       <p className="ar-miss-sub">内容取回失败——这不是「未收录」，是网络或服务暂时不可用。</p>
       <button className="mu-ledger" onClick={onRetry}>重新加载 →</button>
     </div>
@@ -327,7 +408,7 @@ function SecPicker({ onPick, suggested }: { onPick: (path: string) => void; sugg
   const recents = getRecentDocs().slice(0, 6);
   return (
     <div className="ar-picker glass">
-      <h4>对照阅读 · 选择右栏文档</h4>
+      <h2>对照阅读 · 选择右栏文档</h2>
       {suggested && (
         <button className="ar-pick-sug" onClick={() => onPick(suggested.path)} title={suggested.path}>
           <b>本卷大纲 · {suggested.label}</b>
@@ -352,9 +433,11 @@ function SecPicker({ onPick, suggested }: { onPick: (path: string) => void; sugg
 
 /* ---------------- Archive：工作区外壳 ---------------- */
 
-export function Archive({ path, anchor, onNavigate, onOpenPerson, onOpenVolume, onOpenDomain, onOpenStage, onOpenImagery, onOpenEvent }: {
+export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPerson, onOpenVolume, onOpenDomain, onOpenStage, onOpenImagery, onOpenEvent }: {
   path: string;
   anchor?: string;
+  evidenceId?: number;
+  query?: string;
   onNavigate: (path: string) => void;
   onOpenPerson: (id: number) => void;
   /* v8 · 3.3 五向互链补全（检查器新增「所属 / 同时间事件 / 相关意象」三向） */
@@ -374,6 +457,9 @@ export function Archive({ path, anchor, onNavigate, onOpenPerson, onOpenVolume, 
   const [headings, setHeadings] = useState<DocHeading[]>([]);
   const [activeH, setActiveH] = useState('');
   const [meta, setMeta] = useState<DocFull | null>(null);
+  const [evFocus, setEvFocus] = useState<number | undefined>(evidenceId);
+  const [evLoci, setEvLoci] = useState<Record<number, { heading: string; para: string }>>({});
+  useEffect(() => { ensureCjkSerif(); }, []);
   /* v4 · A4 深化：默认对照当前文档所属卷的章节设计（卷大纲） */
   const volDesign = useMemo(() => {
     const v = meta?.volume ?? null;
@@ -390,10 +476,12 @@ export function Archive({ path, anchor, onNavigate, onOpenPerson, onOpenVolume, 
   useEffect(() => {
     if (mainPaneKey.current !== path) {
       mainPaneKey.current = path;
-      setHeadings([]); setActiveH(''); setMeta(null);
+      setHeadings([]); setActiveH(''); setMeta(null); setEvFocus(undefined); setEvLoci({});
       headRef.current = [];
     }
   }, [path]);
+
+  useEffect(() => { setEvFocus(evidenceId); }, [evidenceId]);
 
   const onHeadings = (hs: DocHeading[]) => {
     const sig = hs.map(h => h.id).join('|');
@@ -447,7 +535,7 @@ export function Archive({ path, anchor, onNavigate, onOpenPerson, onOpenVolume, 
       <header className="ar-head">
         <div className="ar-head-main">
           <p className="ar-crumb">{meta ? `${meta.domain}${meta.stage ? ` · ${meta.stage}` : ''}` : '\u00A0'}</p>
-          <h2>{meta ? meta.title : path.replace(/\.md$/, '').split('/').pop()}</h2>
+          <h1>{meta ? meta.title : path.replace(/\.md$/, '').split('/').pop()}</h1>
         </div>
         <div className="ar-toolbar" ref={rsRef}>
           <button className={`ar-tool ${tocOpen ? 'on' : ''}`} onClick={() => setTocOpen(v => !v)} title="目录">目录</button>
@@ -477,9 +565,10 @@ export function Archive({ path, anchor, onNavigate, onOpenPerson, onOpenVolume, 
         <div className={`ar-panes ${dual ? 'dual' : ''}`}>
           <div className="ar-pane">
             <DocPane
-              path={path} anchor={anchor} track
+              path={path} anchor={anchor} evidenceId={evidenceId} query={query} track
               onNavigate={onNavigate} onOpenPerson={onOpenPerson}
               onHeadings={onHeadings} onDocMeta={setMeta}
+              onEvidenceFocus={setEvFocus} onEvidenceLoci={setEvLoci}
             />
           </div>
           {dual && (
@@ -503,8 +592,8 @@ export function Archive({ path, anchor, onNavigate, onOpenPerson, onOpenVolume, 
         {inspOpen && (
           <aside className="ar-inspector" aria-label="来源检查器">
             {meta && meta.persons.length > 0 && (
-              <section className="ar-card glass">
-                <h4>人物提及</h4>
+              <section className="ar-card surface">
+                <h2>人物提及</h2>
                 {meta.persons.map(p => (
                   <button key={p.id} className="ar-link" onClick={() => onOpenPerson(p.id)}>
                     {p.display_name}<em>{p.mention_count}</em>
@@ -513,28 +602,55 @@ export function Archive({ path, anchor, onNavigate, onOpenPerson, onOpenVolume, 
               </section>
             )}
             {meta && meta.backlinks.length > 0 && (
-              <section className="ar-card glass">
-                <h4>被谁引用</h4>
+              <section className="ar-card surface">
+                <h2>被谁引用</h2>
                 {meta.backlinks.map(b => (
                   <button key={b.path} className="ar-link" onClick={() => onNavigate(b.path)}>{b.title}</button>
                 ))}
               </section>
             )}
             {meta && meta.evSnippets.length > 0 && (
-              <section className="ar-card glass">
-                <h4>证据片段</h4>
+              <section className="ar-card surface">
+                <h2>证据片段</h2>
+                <p className="ar-ev-note">落在段落上，条数不是可信度。</p>
                 <ul className="ar-ev">
-                  {meta.evSnippets.map((s, i) => (
-                    <li key={i} title={evidenceLabel(s.kind).desc}>
-                      <i>{evidenceLabel(s.kind).name}</i>{s.snippet.slice(0, 120)}…
+                  {meta.evSnippets.map((s, i) => {
+                    const loc = evLoci[s.id];
+                    return (
+                    <li key={s.id ?? i} title={evidenceLabel(s.kind).desc}>
+                      <div className="ar-ev-row">
+                      <button type="button" data-ev-id={s.id} className={`ar-ev-jump ${evFocus === s.id ? 'on' : ''}`} onClick={() => {
+                        setEvFocus(s.id);
+                        const root = document.querySelector('.ar-pane:not(.sec) .ar-body') as HTMLElement | null;
+                        if (!root) return;
+                        const el = focusEvidence(root, { id: s.id, snippet: s.snippet });
+                        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }}>
+                        {loc?.heading ? <small className="ar-ev-h">{loc.heading}</small> : null}
+                        <i>{evidenceLabel(s.kind).name}</i>{s.snippet.slice(0, 120)}{s.snippet.length > 120 ? '…' : ''}
+                      </button>
+                      <button
+                        type="button"
+                        className="ar-ev-copy"
+                        title="复制此条证据深链"
+                        aria-label="复制此条证据深链"
+                        onClick={() => {
+                          const url = `${location.origin}/doc/${encodeURIComponent(path)}?ev=${s.id}`;
+                          const ok = () => notify('已复制证据深链', 'info');
+                          if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(ok).catch(() => notify('复制失败', 'warn'));
+                          else notify('复制失败', 'warn');
+                        }}
+                      >链</button>
+                      </div>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               </section>
             )}
             {meta && (meta.volume || meta.domain || meta.stage) && (
-              <section className="ar-card glass">
-                <h4>所属</h4>
+              <section className="ar-card surface">
+                <h2>所属</h2>
                 <div className="ar-chips">
                   {meta.volume && onOpenVolume && (
                     <button className="ar-chip" onClick={() => onOpenVolume(meta.volume as string)} title="在 Σ4 五卷书房打开">卷 {meta.volume}</button>
@@ -551,8 +667,8 @@ export function Archive({ path, anchor, onNavigate, onOpenPerson, onOpenVolume, 
               </section>
             )}
             {meta && (meta.timeline?.length ?? 0) > 0 && (
-              <section className="ar-card glass">
-                <h4>同时间事件</h4>
+              <section className="ar-card surface">
+                <h2>同时间事件</h2>
                 {meta.timeline!.map(t => (
                   <button key={t.id} className="ar-link" onClick={() => onOpenEvent?.(t.year, t.id)}>
                     {t.year}{t.month ? `.${String(t.month).padStart(2, '0')}` : ''}　{t.title}
@@ -561,8 +677,8 @@ export function Archive({ path, anchor, onNavigate, onOpenPerson, onOpenVolume, 
               </section>
             )}
             {meta && (meta.imagery?.length ?? 0) > 0 && (
-              <section className="ar-card glass">
-                <h4>相关意象</h4>
+              <section className="ar-card surface">
+                <h2>相关意象</h2>
                 <div className="ar-chips">
                   {meta.imagery!.map(im => (
                     <button key={im.id} className="ar-chip" onClick={() => onOpenImagery?.(im.id)} title="在 Σ6 意象博物馆打开">
@@ -575,7 +691,7 @@ export function Archive({ path, anchor, onNavigate, onOpenPerson, onOpenVolume, 
             {meta && meta.persons.length === 0 && meta.backlinks.length === 0 && meta.evSnippets.length === 0
               && !meta.volume && !meta.domain && !meta.stage
               && (meta.timeline?.length ?? 0) === 0 && (meta.imagery?.length ?? 0) === 0 && (
-              <section className="ar-card glass"><p className="ar-toc-empty">本篇暂无关联元数据。</p></section>
+              <section className="ar-card surface"><p className="ar-toc-empty">本篇暂无关联元数据。</p></section>
             )}
           </aside>
         )}

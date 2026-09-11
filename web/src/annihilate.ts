@@ -188,7 +188,7 @@ const motionOff = () =>
 
 /**
  * 粒子画布挂在 document.body，与 React 树解耦——卡片可先裁切隐藏，光尘仍播完。
- * onDone 在粒子真正消亡后回调（无动效则同步回调），不要再用固定 480ms/3000ms 掐断。
+ * onDone 在崩解锋面走完时回调（约 420ms），不把界面卡在粒子寿命上。
  */
 export function annihilate(el: HTMLElement, onDone?: () => void): void {
   const done = (() => {
@@ -210,19 +210,10 @@ export function annihilate(el: HTMLElement, onDone?: () => void): void {
   if (R.width < 40 || R.height < 40) { done(); return; }
 
   const t0 = performance.now();
-  const BURST = 820;   // 更慢的崩解锋面（仙境感：缓慢失重）
+  const BURST = 420;   // 工作台预算：关闭 400ms 级，粒子可在身后继续
 
-  /* DOM 裁切驱动：随崩解锋面从底部裁起（独立于渲染后端） */
   let clipRaf = 0;
-  const driveClip = () => {
-    if (!card.isConnected) return;
-    const pct = Math.min(100, ((performance.now() - t0) / BURST) * 100);
-    card.style.clipPath = 'inset(0 0 ' + pct.toFixed(2) + '% 0)';
-    if (pct < 100) clipRaf = requestAnimationFrame(driveClip);
-  };
-  clipRaf = requestAnimationFrame(driveClip);
-
-  const finish = () => {
+  const releaseUi = () => {
     cancelAnimationFrame(clipRaf);
     if (card.isConnected) {
       card.style.clipPath = 'inset(0 0 100% 0)';
@@ -231,12 +222,21 @@ export function annihilate(el: HTMLElement, onDone?: () => void): void {
     done();
   };
 
+  /* DOM 裁切驱动：随崩解锋面从底部裁起（独立于渲染后端） */
+  const driveClip = () => {
+    const pct = Math.min(100, ((performance.now() - t0) / BURST) * 100);
+    if (card.isConnected) card.style.clipPath = 'inset(0 0 ' + pct.toFixed(2) + '% 0)';
+    if (pct < 100 && card.isConnected) clipRaf = requestAnimationFrame(driveClip);
+    else releaseUi();
+  };
+  clipRaf = requestAnimationFrame(driveClip);
+
   void (async () => {
     const sample = await getSample(card);
     if (card.isConnected) card.style.visibility = 'hidden';   // 快照就绪瞬间 DOM 隐由粒子接管
 
     const { step, keep } = tier();
-    if (!sample) { finish(); return; }
+    if (!sample) { releaseUi(); return; }
 
     /* ── 网格采样：step×step 一格一粒子，取像素真实颜色 ── */
     const sw = sample.w, sh = sample.h, data = sample.data;
@@ -265,8 +265,8 @@ export function annihilate(el: HTMLElement, onDone?: () => void): void {
                 } else {
                   pcl.push(Math.min(1, data[i] / 255 * 1.08 + 0.02), Math.min(1, data[i + 1] / 255 * 1.08 + 0.02), Math.min(1, data[i + 2] / 255 * 1.08 + 0.03));
                 }
-        const dly = ((R.bottom - y) / R.height) * BURST * (0.75 + n2(x * 0.08, y * 0.08) * 0.5) + n2(x * 0.31, y * 0.17) * 36;
-        const life = 1900 + Math.random() * 900;
+        const dly = ((R.bottom - y) / R.height) * BURST * (0.75 + n2(x * 0.08, y * 0.08) * 0.5) + n2(x * 0.31, y * 0.17) * 24;
+        const life = 520 + Math.random() * 360;
         pdl.push(dly);
         plf.push(life);
         psd.push(Math.random());
@@ -274,7 +274,7 @@ export function annihilate(el: HTMLElement, onDone?: () => void): void {
       }
     }
     const N = px.length / 2;
-    if (N === 0) { finish(); return; }
+    if (N === 0) { releaseUi(); return; }
     maxEnd += 80; // 尾尘淡出余量，避免最后一粒被掐断
 
     const cvs = doc.createElement('canvas');
@@ -297,7 +297,7 @@ export function annihilate(el: HTMLElement, onDone?: () => void): void {
       const prog = vs && fs ? gl.createProgram() : null;
       if (prog) { gl.attachShader(prog, vs!); gl.attachShader(prog, fs!); gl.linkProgram(prog); }
       if (!prog || !gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-        cvs.remove(); finish(); return;
+        cvs.remove(); releaseUi(); return;
       }
       gl.useProgram(prog);
       const setAttr = (arr: number[], name: string, size: number) => {
@@ -331,7 +331,7 @@ export function annihilate(el: HTMLElement, onDone?: () => void): void {
         gl.drawArrays(gl.POINTS, 0, N);          // 单次绘制调用
         paintFade(el0);
         if (el0 < maxEnd) requestAnimationFrame(loop);
-        else { cvs.remove(); finish(); }
+        else { cvs.remove(); releaseUi(); }
       };
       requestAnimationFrame(loop);
       return;
@@ -339,7 +339,7 @@ export function annihilate(el: HTMLElement, onDone?: () => void): void {
 
     /* ── 回退：Canvas 2D（同采样与物理） ── */
     const ctx2 = cvs.getContext('2d');
-    if (!ctx2) { cvs.remove(); finish(); return; }
+    if (!ctx2) { cvs.remove(); releaseUi(); return; }
     ctx2.scale(dpr, dpr);
     ctx2.globalCompositeOperation = 'lighter';
     const vx2 = new Float32Array(N), vy2 = new Float32Array(N), life2 = new Float32Array(N), age2 = new Float32Array(N);
@@ -370,8 +370,8 @@ export function annihilate(el: HTMLElement, onDone?: () => void): void {
       }
       ctx2.globalAlpha = 1;
       paintFade(el0);
-      if ((alive > 0 || el0 < BURST + 700) && el0 < maxEnd) requestAnimationFrame(loop2);
-      else { cvs.remove(); finish(); }
+      if ((alive > 0 || el0 < BURST + 280) && el0 < maxEnd) requestAnimationFrame(loop2);
+      else { cvs.remove(); releaseUi(); }
     };
     requestAnimationFrame(loop2);
   })();

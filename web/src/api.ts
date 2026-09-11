@@ -59,7 +59,7 @@ export interface DocFull {
   backlinks: { path: string; title: string; domain: string }[];
   persons: { id: number; display_name: string; relation_group: string; mention_count: number }[];
   evidence: { kind: string; n: number }[];
-  evSnippets: { kind: string; snippet: string }[];
+  evSnippets: { id: number; kind: string; snippet: string }[];
   /* v8 · 3.3 五向互链：本文档登记的时间线事件 + 正文出现过的意象 */
   timeline?: { id: number; year: number; month: number | null; title: string; kind: string }[];
   imagery?: { id: number; name: string; occ: number }[];
@@ -201,6 +201,17 @@ export interface Foreshadow { id: number; level: string; material: string; plant
 
 export interface DomainStat { domain: string; n: number; hs: number; uni: number }
 
+export interface QueueItem {
+  id: number;
+  kind: string;
+  snippet: string;
+  path: string;
+  title: string;
+  volume: string | null;
+  domain: string;
+  stage: string | null;
+}
+
 export interface DomainDocs {
   domain: string; total: number;
   docs: { id: number; path: string; title: string; doc_type: string; stage: string; volume: string | null; mtime: number }[];
@@ -246,6 +257,7 @@ export const api = {
   imageryOne: (id: number) => j404<ImageryOne>(`/api/imagery/${id}`),
   questionnaires: () => j<Questionnaire[]>('/api/questionnaires'),
   domains: () => j<DomainStat[]>('/api/domains'),
-  domainDocs: (name: string, limit = 60) =>
-    j<DomainDocs>(`/api/domains/${encodeURIComponent(name)}/docs?limit=${limit}`),
+  domainDocs: (name: string, limit = 80, offset = 0) =>
+    j<DomainDocs>(`/api/domains/${encodeURIComponent(name)}/docs?limit=${limit}&offset=${offset}`),
+  queue: () => j<QueueItem[]>('/api/queue'),
 };

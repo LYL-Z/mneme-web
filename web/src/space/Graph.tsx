@@ -5,6 +5,8 @@ import {
 } from 'd3-force';
 import { api, ApiError, apiErrorMessage, type EntityDetail, type GraphData } from '../api';
 import { notify } from '../toast';
+import { evidenceLabel } from '../evidenceKind';
+import { useFocusTrap } from '../focusTrap';
 
 /**
  * Σ3 人物星图 · v7「行星旷野」
@@ -24,6 +26,7 @@ const GOLDEN = 2.399963229728653;
 const WORLD = { w: 2600, h: 1600 };
 const MARGIN = 96;          // 世界边缘留白（防标签被裁）
 const K_MIN = 0.24, K_MAX = 3.4;
+const VIEW_KEY = 'mneme-graph-view';
 
 interface GNode extends SimulationNodeDatum {
   id: number; name: string; grp: string; mention: number; r: number; color: string;
@@ -57,9 +60,18 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
   const [data, setData] = useState<GraphData | null>(null);
   const [hover, setHover] = useState<GNode | null>(null);
   const [sheet, setSheet] = useState<EntityDetail | null>(null);
+  const sheetIdRef = useRef<number | null>(null);
+  sheetIdRef.current = sheet?.id ?? null;
   /* 星表：星图等价列表入口（键盘可达——所有人物皆为 <button>，可 Tab / Enter 打开） */
   const [listOpen, setListOpen] = useState(false);
   const [listQ, setListQ] = useState('');
+  const [rosterCur, setRosterCur] = useState(0);
+  const rosterRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(rosterRef, listOpen, () => setListOpen(false));
+  /* 类别过滤：关掉的关系组不绘星、不参与点选。提及次数仍不是亲密度。 */
+  const [offGroups, setOffGroups] = useState<Set<string>>(() => new Set());
+  const offGroupsRef = useRef(offGroups);
+  offGroupsRef.current = offGroups;
   /* 绝密解锁后丢掉锁定态星图，重新拉全量节点 */
   const [graphGen, setGraphGen] = useState(0);
   /* 搜索（v7）：常驻搜索框 + 候选下拉 + 飞行定位 */
@@ -101,6 +113,9 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
     const k = Math.min(K_MAX, Math.max(K_MIN, v.k));
     const mx = (WORLD.w / 2) * k + 420, my = (WORLD.h / 2) * k + 420;
     return { k, x: Math.max(-mx, Math.min(mx, v.x)), y: Math.max(-my, Math.min(my, v.y)) };
+  };
+  const saveView = () => {
+    try { sessionStorage.setItem(VIEW_KEY, JSON.stringify(viewRef.current)); } catch { /* 隐私模式 */ }
   };
   const fitView = (vw: number, vh: number): View =>
     ({ x: 0, y: 0, k: Math.min(K_MAX, Math.max(K_MIN, Math.min(vw / WORLD.w, vh / WORLD.h) * 0.94)) });
@@ -330,6 +345,8 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
       for (const e of edgesRef.current) {
         const s = e.source as GNode, tt = e.target as GNode;
         if (s.x == null || s.y == null || tt.x == null || tt.y == null) continue;
+        const off = offGroupsRef.current;
+        if (off.has(s.grp) || off.has(tt.grp)) continue;
         const mx = (s.x + tt.x) / 2, my = (s.y + tt.y) / 2;
         const dx = tt.x - s.x, dy = tt.y - s.y;
         const len = Math.hypot(dx, dy) || 1;
@@ -360,6 +377,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
     };
 
     const draw = (t: number) => {
+      if (document.hidden) { running = false; raf = 0; return; }
       const sim = simRef.current;
       const active = !!(sim && sim.alpha() > 0.015);
       if (active) sim.tick();
@@ -393,12 +411,19 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
 
       // 行星精灵：逐帧 drawImage（2× 烘焙，缩放不糊）
       const sprites = spriteRef.current;
+      const off = offGroupsRef.current;
+      const sid = sheetIdRef.current;
+      const nbrSet = sid != null
+        ? new Set<number>([sid, ...(adjRef.current.get(sid) ?? []).map(x => x.id)])
+        : null;
       for (const n of nodesRef.current) {
         if (n.x == null || n.y == null) continue;
+        if (off.has(n.grp)) continue;
         if (n.x < wx0 || n.x > wx1 || n.y < wy0 || n.y > wy1) continue;
         const sp = sprites.get(n.id);
         if (!sp) continue;
         const hw = sp.width / 4;
+        ctx.globalAlpha = nbrSet && !nbrSet.has(n.id) ? 0.16 : 1;
         ctx.drawImage(sp, n.x - hw, n.y - hw, hw * 2, hw * 2);
       }
       ctx.globalAlpha = 1;
@@ -416,12 +441,13 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
       const sy = (wy: number) => wy * k + vy + cy;
       for (const n of nodesRef.current) {
         if (n.x == null || n.y == null) continue;
+        if (off.has(n.grp)) continue;
         const px = sx(n.x), py = sy(n.y) + (n.r + 3) * k + 2;
         if (px < -40 || px > W / dpr + 40 || py < -20 || py > H / dpr + 20) continue;
-        const emphasized = (h && h.id === n.id) || (pulseLive && pulseLive.node.id === n.id);
+        const emphasized = (h && h.id === n.id) || (pulseLive && pulseLive.node.id === n.id) || (sid != null && n.id === sid);
         const a = emphasized ? 1 : labelAlphaFor(n, k);
         if (a <= 0) continue;
-        ctx.globalAlpha = a;
+        ctx.globalAlpha = nbrSet && !nbrSet.has(n.id) ? a * 0.28 : a;
         ctx.fillStyle = emphasized ? TC.labelHi : TC.label;
         ctx.font = (emphasized || n.rank < 7)
           ? '600 11.5px "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif'
@@ -507,7 +533,19 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
       }
     };
     raf = requestAnimationFrame(draw);
+    const onVis = () => {
+      if (document.hidden) {
+        running = false;
+        cancelAnimationFrame(raf);
+        raf = 0;
+      } else if (!running) {
+        running = true;
+        raf = requestAnimationFrame(draw);
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
     return () => {
+      document.removeEventListener('visibilitychange', onVis);
       cancelAnimationFrame(raf);
       running = false;
       ro.disconnect();
@@ -518,14 +556,32 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
     };
   }, [data, theme]);
 
-  /* 初始视野：全景适配（世界完整入画——修复「显示不完整」） */
+  /* 初始视野：有本机记忆则恢复，否则全景适配 */
   useEffect(() => {
     if (!data) return;
     const wrap = wrapRef.current;
     if (!wrap) return;
-    viewRef.current = fitView(wrap.clientWidth, wrap.clientHeight);
+    let restored = false;
+    try {
+      const raw = sessionStorage.getItem(VIEW_KEY);
+      if (raw) {
+        const v = JSON.parse(raw) as View;
+        if (typeof v.k === 'number' && typeof v.x === 'number' && typeof v.y === 'number') {
+          viewRef.current = clampView(v);
+          restored = true;
+        }
+      }
+    } catch { /* 损坏则俯瞰 */ }
+    if (!restored) viewRef.current = fitView(wrap.clientWidth, wrap.clientHeight);
     roRef.current();
   }, [data]);
+
+  useEffect(() => {
+    edgeMapRef.current = null;
+    roRef.current();
+  }, [offGroups, sheet?.id]);
+
+  useEffect(() => () => saveView(), []);
 
   /* 滚轮缩放：原生非被动监听（React onWheel 为被动，preventDefault 无效会连带页面滚动）。
      v7.3：鼠标滚轮、触控板双指（deltaY）、触控板捏合（ctrlKey 加速）与横向滚轮统一收敛为缩放。 */
@@ -562,6 +618,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
     let bd = 16 / k;
     for (const n of nodesRef.current) {
       if (n.x == null || n.y == null) continue;
+      if (offGroupsRef.current.has(n.grp)) continue;
       const d = Math.hypot(n.x - wx, n.y - wy);
       if (d < Math.max(bd, n.r + 4 / k) && d < bd + n.r) { best = n; bd = d; }
     }
@@ -632,7 +689,10 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
   const endPointer = (e: React.PointerEvent) => {
     pointersRef.current.delete(e.pointerId);
     if (pointersRef.current.size < 2) pinchRef.current = null;
-    if (pointersRef.current.size === 0) dragRef.current.last = null;
+    if (pointersRef.current.size === 0) {
+      dragRef.current.last = null;
+      saveView();
+    }
     else if (pointersRef.current.size === 1) {
       const [p] = [...pointersRef.current.values()];
       dragRef.current = { last: { x: p.x, y: p.y }, moved: true }; // 捏合余指转平移，不误触点击
@@ -656,9 +716,9 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
   const qHits = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s || !data) return [];
-    return data.nodes.filter(n => n.name.toLowerCase().includes(s))
+    return data.nodes.filter(n => n.name.toLowerCase().includes(s) && !offGroups.has(n.grp))
       .sort((a, b) => b.mention - a.mention).slice(0, 8);
-  }, [q, data]);
+  }, [q, data, offGroups]);
   const searchGo = (id: number) => {
     setQFocus(false);
     setQ('');
@@ -678,12 +738,18 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
     if (!data) return [];
     const s = listQ.trim().toLowerCase();
     return data.nodes
-      .filter(n => !s || n.name.toLowerCase().includes(s))
+      .filter(n => !offGroups.has(n.grp) && (!s || n.name.toLowerCase().includes(s)))
       .sort((a, b) => b.mention - a.mention);
-  }, [data, listQ]);
+  }, [data, listQ, offGroups]);
+
+  useEffect(() => { setRosterCur(0); }, [listQ, listOpen]);
+  useEffect(() => {
+    rosterRef.current?.querySelector('.gp-roster-item.on')?.scrollIntoView({ block: 'nearest' });
+  }, [rosterCur]);
 
   return (
     <div className="gp" ref={wrapRef}>
+      <h1 className="sr-only">人物星图</h1>
       <canvas
         ref={canvasRef}
         aria-label="人物星图画布：拖拽平移，滚轮或双指缩放，点击行星打开人物档案"
@@ -740,15 +806,51 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
       </div>
 
       <div className="gp-legend glass">
-        {legend.map(l => <span key={l.name}><i style={{ background: l.color }} />{l.name}</span>)}
-        <span className="gp-legend-note">星等 = 提及数 · 拖拽漫游 · 滚轮/双指缩放 · 共现边仅列最强 700 条</span>
+        {legend.map(l => (
+          <button
+            key={l.name}
+            type="button"
+            className={`gp-leg ${offGroups.has(l.name) ? 'off' : ''}`}
+            aria-pressed={!offGroups.has(l.name)}
+            onClick={() => {
+              setOffGroups(prev => {
+                const next = new Set(prev);
+                if (next.has(l.name)) next.delete(l.name); else next.add(l.name);
+                return next;
+              });
+            }}
+          >
+            <i style={{ background: l.color }} />{l.name}
+          </button>
+        ))}
+        <span className="gp-legend-note">点图例显隐 · 打开档案只亮一跳邻域 · 提及/共现 ≠ 亲密</span>
         <button className="gp-roster-btn" onClick={() => setListOpen(v => !v)} aria-expanded={listOpen}>
           {listOpen ? '收起星表' : '星表'}
         </button>
       </div>
 
       {listOpen && (
-        <div className="gp-roster glass" role="dialog" aria-label="人物星表">
+        <div
+          ref={rosterRef}
+          className="gp-roster glass"
+          role="dialog"
+          aria-label="人物星表"
+          onKeyDown={e => {
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+            const t = e.target as HTMLElement;
+            const inQ = t.tagName === 'INPUT';
+            if ((e.key === 'ArrowDown' || (e.key === 'j' && !inQ))) {
+              e.preventDefault();
+              setRosterCur(c => Math.min(c + 1, Math.max(0, roster.length - 1)));
+            } else if ((e.key === 'ArrowUp' || (e.key === 'k' && !inQ))) {
+              e.preventDefault();
+              setRosterCur(c => Math.max(c - 1, 0));
+            } else if (e.key === 'Enter' && roster[rosterCur] && !inQ) {
+              e.preventDefault();
+              flyToId(roster[rosterCur].id);
+            }
+          }}
+        >
           <div className="gp-roster-head">
             <b>星表 · {roster.length} 位实星</b>
             <input
@@ -756,9 +858,18 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
               placeholder="检索姓名…" aria-label="检索人物姓名"
             />
           </div>
-          <div className="gp-roster-list">
-            {roster.map(n => (
-              <button key={n.id} className="gp-roster-item" onClick={() => { flyToId(n.id); }}>
+          <p className="gp-roster-note">↑↓ 选择 · Enter 定位 · 提及次数不是亲密度</p>
+          <div className="gp-roster-list" role="listbox" aria-label="人物名单">
+            {roster.map((n, i) => (
+              <button
+                key={n.id}
+                type="button"
+                role="option"
+                aria-selected={i === rosterCur}
+                className={`gp-roster-item ${i === rosterCur ? 'on' : ''}`}
+                onMouseEnter={() => setRosterCur(i)}
+                onClick={() => { flyToId(n.id); }}
+              >
                 <i style={{ background: GROUP_PALETTE[n.grp] || '#A9864A' }} />
                 <span className="gp-roster-name">{n.name}</span>
                 <span className="gp-roster-grp">{n.grp}</span>
@@ -776,14 +887,14 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
           <p className="gp-sheet-grp" style={{ color: GROUP_PALETTE[sheet.relation_group] || 'var(--bronze)' }}>
             {sheet.relation_group}{sheet.stage ? ` · ${sheet.stage}` : ''}
           </p>
-          <h3>{sheet.display_name}</h3>
+          <h2>{sheet.display_name}</h2>
           <p className="gp-sheet-meta">
             提及 {sheet.mention_count} 次 · {sheet.first_year ?? '—'}–{sheet.last_year ?? '—'}
             {sheet.aliases.length > 0 && <> · 又名 {sheet.aliases.slice(0, 3).join('、')}</>}
           </p>
           {sheet.related.length > 0 && (
             <>
-              <h4>同篇共现</h4>
+              <h3>同篇共现</h3>
               <div className="gp-sheet-rel">
                 {sheet.related.map(r => (
                   <button key={r.id} onClick={() => openSheet(r.id)}>{r.display_name}<em>{r.co}</em></button>
@@ -793,9 +904,11 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
           )}
           {sheet.evidence.length > 0 && (
             <>
-              <h4>证据片段</h4>
+              <h3>证据片段</h3>
               <ul className="gp-sheet-ev">
-                {sheet.evidence.slice(0, 4).map((ev, i) => <li key={i}><i>{ev.kind}</i>{ev.snippet.slice(0, 60)}…</li>)}
+                {sheet.evidence.slice(0, 4).map((ev, i) => (
+                  <li key={i}><i>{evidenceLabel(ev.kind).name}</i>{ev.snippet.slice(0, 60)}…</li>
+                ))}
               </ul>
             </>
           )}

@@ -33,6 +33,29 @@ export const recordDoc = (d: Omit<RecentDoc, 't'>) => {
 
 export const getRecentDocs = () => read<RecentDoc[]>(K_RECENT) ?? [];
 
+/** 私密路径不得作为默认落地：URL 会暴露「这里有一份被隔离的档案」。 */
+const PRIVATE_SEG = /私人资料|(^|\/)隐私\//;
+
+export type ResumeTarget =
+  | { kind: 'doc'; path: string }
+  | { kind: 'chapter'; code: string; seq: number };
+
+/**
+ * 根路径 `/` 的续读目标。取「最近一篇公开文档」与「上次章节」中更新的那条。
+ * 没有轨迹时返回 null，调用方应落到记忆恒星门厅。
+ */
+export const resumeTarget = (): ResumeTarget | null => {
+  const docs = getRecentDocs();
+  const publicDoc = docs.find(d => d.path && !PRIVATE_SEG.test(d.path));
+  const ch = getLastChapter();
+  const docT = publicDoc?.t ?? 0;
+  const chT = ch?.t ?? 0;
+  if (!docT && !chT) return null;
+  if (ch && chT >= docT) return { kind: 'chapter', code: ch.code, seq: ch.seq };
+  if (publicDoc) return { kind: 'doc', path: publicDoc.path };
+  return null;
+};
+
 /** 相对时间：刚刚 / N 分钟前 / N 小时前 / N 天前 */
 export const timeAgo = (t: number): string => {
   const m = Math.floor((Date.now() - t) / 60000);

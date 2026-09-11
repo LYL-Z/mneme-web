@@ -19,6 +19,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 import { SECRET_NAME, SECRET_DOC } from '../server/privacy.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -39,6 +40,33 @@ const META_KEYS = ['meta'];
    也会写 `[[问卷回收/…母亲问卷作答全文|母亲卷]]` 这类指向公开文档的链接——
    那是作者的内容，不是 API 的泄漏。真正的门禁是：目标文档本身取不到（403/404）。 */
 const SNIPPET_KEYS = ['sn', 'snippet'];
+
+/** 单条实体探测用 id：入库会重排主键，禁止写死。不向 stdout 打印姓名。 */
+function probeHiddenEntityIds() {
+  const envPriv = process.env.MNEME_PRIV_ENTITY_ID ? +process.env.MNEME_PRIV_ENTITY_ID : 0;
+  const envSec = process.env.MNEME_SECRET_ENTITY_ID ? +process.env.MNEME_SECRET_ENTITY_ID : 0;
+  if (envPriv && envSec) return { privId: envPriv, secId: envSec };
+  try {
+    const db = new DatabaseSync(path.join(HERE, 'mneme.db'), { readOnly: true });
+    const priv = db.prepare(
+      `SELECT id FROM entities WHERE COALESCE(std_id,'') LIKE '%私人资料%' OR COALESCE(role_doc_path,'') LIKE '%私人资料%'
+        OR COALESCE(std_id,'') LIKE '%隐私%' OR COALESCE(role_doc_path,'') LIKE '%隐私%' LIMIT 1`,
+    ).get();
+    /* 绝密 403 探测要避开同时也落在私密路径的行：那些按规则先走 404。 */
+    const sec = SECRET_NAME
+      ? db.prepare(
+        `SELECT id FROM entities WHERE display_name LIKE ?
+          AND COALESCE(std_id,'') NOT LIKE '%私人资料%' AND COALESCE(role_doc_path,'') NOT LIKE '%私人资料%'
+          AND COALESCE(std_id,'') NOT LIKE '%隐私%' AND COALESCE(role_doc_path,'') NOT LIKE '%隐私%'
+          LIMIT 1`,
+      ).get(`%${SECRET_NAME}%`)
+      : null;
+    db.close();
+    return { privId: envPriv || priv?.id || 0, secId: envSec || sec?.id || 0 };
+  } catch {
+    return { privId: envPriv, secId: envSec };
+  }
+}
 
 const fails = [];
 const ok = (label, cond, extra = '') => {
@@ -147,10 +175,19 @@ async function main() {
 
   /* ---------- 3. 单条实体（枚举绕过） ---------- */
   {
-    const priv = await api('/api/entities/88');
-    ok('GET /api/entities/88（私密实体）→ 404', priv.status === 404, `得到 ${priv.status}`);
-    const sec = await api('/api/entities/249');
-    ok('GET /api/entities/249（绝密实体）→ 403', sec.status === 403, `得到 ${sec.status}`);
+    const { privId, secId } = probeHiddenEntityIds();
+    if (privId) {
+      const priv = await api(`/api/entities/${privId}`);
+      ok(`GET /api/entities/${privId}（私密实体）→ 404`, priv.status === 404, `得到 ${priv.status}`);
+    } else {
+      console.log('  ⏭  私密实体直取跳过（库内未定位到私密实体 id）');
+    }
+    if (secId) {
+      const sec = await api(`/api/entities/${secId}`);
+      ok(`GET /api/entities/${secId}（绝密实体）→ 403`, sec.status === 403, `得到 ${sec.status}`);
+    } else if (SECRET_NAME) {
+      console.log('  ⏭  绝密实体直取跳过（库内未定位到绝密实体 id）');
+    }
   }
 
   /* ---------- 4. 检索（拼音 + 中文 + 私密关键词） ---------- */
@@ -240,6 +277,15 @@ async function main() {
     ));
     ok('GET /api/foreshadow 无绝密姓名', status === 200 && (!SECRET_NAME || !blob.includes(SECRET_NAME)), `(${rows.length} 条)`);
     ok('GET /api/foreshadow 无卷二卷三埋设/回收', volHit.length === 0, volHit.length ? `(漏 ${volHit.length} 条)` : '');
+  }
+
+  /* ---------- 9c. 待核队列（未解锁不得带出绝密姓名 / 私密路径） ---------- */
+  {
+    const { status, body } = await api('/api/queue');
+    const rows = Array.isArray(body) ? body : [];
+    const hits = scan(body);
+    ok('GET /api/queue 无私密路径/绝密姓名', status === 200 && hits.length === 0, `(${rows.length} 条)`);
+    if (hits.length) console.log('     ' + hits.slice(0, 3).join('\n     '));
   }
 
   /* ---------- 10. 解锁后应当恢复（确认不是「一刀切锁死」） ---------- */

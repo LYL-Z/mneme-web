@@ -11,6 +11,7 @@ import { notify } from '../toast';
  * v4 · A5：回收总数走服务端核账口径（overview.surveyTotal），前端不再硬编码；
  * 密码入口收敛——公开界面不出现「管理员密码」明示，按钮只说「解锁此卷」。
  */
+const PARENT_LABEL = /^(母亲|父亲|妈妈|爸爸)/;
 const ROUND_ORDER = ['V1', 'V2', 'V3'];
 export function Voices({ onOpenDoc, overview }: { onOpenDoc: (path: string) => void; overview: Overview | null }) {
   const [items, setItems] = useState<Questionnaire[]>([]);
@@ -44,23 +45,31 @@ export function Voices({ onOpenDoc, overview }: { onOpenDoc: (path: string) => v
     <div className="vo" ref={rootRef}>
       <header className="vo-head">
         <p className="greek vo-kicker">ΦΩΝΕΣ · Σ8</p>
-        <h2>他者之声</h2>
+        <h1>他者之声</h1>
         <p className="vo-sub">
           累计回收问卷已达 <b className="vo-big">{overview?.surveyTotal ? `${overview.surveyTotal}+` : '—'}</b> 份（V1–V3 三轮采集 · 作者口径）·
           本馆已收入 <b className="vo-big">{items.length}</b> 份作答全文——
-          除父母卷外均为<b className="vo-secret">绝密档案</b>
-          {lockedCount > 0 ? `（待解锁 ${lockedCount} 份）` : ''}。
+          说话人与关系按卷面登录；除父母卷外均为<b className="vo-secret">绝密档案</b>
+          {lockedCount > 0 ? `（待解锁 ${lockedCount} 份）` : ''}。评价只属于作答人，不是人格结论。
         </p>
       </header>
       {rounds.map(rd => (
         <section key={rd} className="vo-round">
-          <h3 className="vo-round-title"><span className="greek">{rd}</span> 第 {ROUND_ORDER.indexOf(rd) + 1} 轮 · {items.filter(q => (q.round || 'V1') === rd).length} 份</h3>
+          <h2 className="vo-round-title"><span className="greek">{rd}</span> 第 {ROUND_ORDER.indexOf(rd) + 1} 轮 · {items.filter(q => (q.round || 'V1') === rd).length} 份</h2>
           <div className="vo-grid">
             {items.filter(q => (q.round || 'V1') === rd).map(q => (
-              <article key={q.id} className={`vo-card glass ${q.locked ? 'locked' : ''}`}>
+              <article key={q.id} className={`vo-card surface ${q.locked ? 'locked' : ''}`}>
                 <header className="vo-card-head">
                   <b>{q.respondent_label}</b>
                   {q.relation_label && q.relation_label !== q.respondent_label && <i>{q.relation_label}</i>}
+                  <i className="vo-src">{
+                    q.locked
+                      ? '绝密档案 · 未解锁'
+                      : (PARENT_LABEL.test(q.respondent_label) || PARENT_LABEL.test(q.relation_label || ''))
+                        ? '问卷作答全文 · 公开父母卷'
+                        : '问卷作答全文 · 已解锁绝密'
+                  }</i>
+                  {q.round && <i className="vo-src">采集轮次 {q.round}</i>}
                   {q.locked && <i className="vo-lock">🔒 绝密</i>}
                 </header>
                 {q.locked ? (

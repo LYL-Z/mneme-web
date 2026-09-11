@@ -121,6 +121,7 @@ export function DailySky({ theme, onOpenPerson }: { theme: 'paper' | 'night'; on
     ro.observe(wrap);
 
     const draw = (t: number) => {
+      if (document.hidden || !running) { running = false; raf = 0; return; }
       raf = requestAnimationFrame(draw);
       frame++;
       const { nodes, edges } = skyRef.current;
@@ -172,7 +173,14 @@ export function DailySky({ theme, onOpenPerson }: { theme: 'paper' | 'night'; on
     const wake = () => { if (!running) { running = true; raf = requestAnimationFrame(draw); } };
     wrap.addEventListener('pointermove', wake, { passive: true });
     wrap.addEventListener('pointerleave', wake);
-    return () => { cancelAnimationFrame(raf); running = false; ro.disconnect(); canvas.width = 0; canvas.height = 0; };
+    const onVis = () => { if (document.hidden) { running = false; cancelAnimationFrame(raf); raf = 0; } else wake(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      cancelAnimationFrame(raf); running = false; ro.disconnect(); canvas.width = 0; canvas.height = 0;
+      wrap.removeEventListener('pointermove', wake);
+      wrap.removeEventListener('pointerleave', wake);
+    };
   }, [theme, today, gen]);
 
   const pick = (e: React.PointerEvent) => {
@@ -199,7 +207,7 @@ export function DailySky({ theme, onOpenPerson }: { theme: 'paper' | 'night'; on
     <div className="ds glass" ref={wrapRef}>
       <header className="ds-head">
         <p className="greek ds-kicker">ΩΡΑΣΚΟΠΙΟΝ · 今日星座</p>
-        <h3>{today.getFullYear()} 年 {mm} 月 {dd} 日 的天空</h3>
+        <h2>{today.getFullYear()} 年 {mm} 月 {dd} 日 的天空</h2>
         <p className="ds-sub">以今天为种子生成的星座——同一天重访，看见同一片。星等=真实提及量，连线=真实共现。</p>
       </header>
       <canvas

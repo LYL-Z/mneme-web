@@ -58,6 +58,18 @@ export const overview = () => withDb(db => {
   return { docs, secretDocs, entities, edges, stardust, anchors, questionnaires, imagery, chapters, samples, latest, evidence, volumes, audit, years, domains };
 });
 
+/** 待核工作队列：冲突 / 待核 / 待采。未解锁时走文档守卫，snippet 再滤绝密姓名。 */
+export const evidenceQueue = ({ unlocked = false } = {}) => withDb(db => {
+  const guard = unlocked ? '' : docGuardSql('d');
+  const rows = db.prepare(`
+    SELECT es.id, es.kind, es.snippet, d.path, d.title, d.volume, d.domain, d.stage
+    FROM evidence_spans es JOIN documents d ON d.id = es.doc_id
+    WHERE es.kind IN ('pending','pendingCollect','conflict') ${guard}
+    ORDER BY CASE es.kind WHEN 'conflict' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, d.mtime DESC
+    LIMIT 80`).all();
+  return unlocked ? rows : rows.filter(r => !isSecretText(r.snippet) && !isSecretText(r.title));
+});
+
 /* ---------- 十域 ---------- */
 export const domains = () => withDb(db =>
   db.prepare(`SELECT domain, COUNT(*) n,
@@ -94,13 +106,7 @@ export const timeline = ({ from = 2000, to = 2030, stage, kind, unlocked = false
   const p = [from, to];
   if (stage) { sql += ' AND t.stage=?'; p.push(stage); }
   if (kind) { sql += ' AND t.kind=?'; p.push(kind); }
-  if (!unlocked) {
-    /* 绝密档案：卷二/卷三事件 + 标题点名绝密人物者，未解锁一律不出现 */
-    sql += ` AND COALESCE(t.volume,'') NOT IN (${SECRET_VOLUMES.map(() => '?').join(',')})`;
-    p.push(...SECRET_VOLUMES);
-    sql += " AND COALESCE(t.title,'') NOT LIKE ?";
-    p.push(`%${SECRET_NAME}%`);
-  }
+  if (!unlocked) sql += timelineGuardSql('t');
   sql += ' ORDER BY t.year, t.month IS NULL, t.month';
   return db.prepare(sql).all(...p);
 });
@@ -394,7 +400,9 @@ export const doc = (rawPath, opts = {}) => withDb(db => {
     JOIN entity_mentions m ON m.entity_id=e.id WHERE m.doc_id=?${pGuard} ORDER BY e.mention_count DESC LIMIT 30`)
     .all(d.id, ...(unlocked ? [] : ENTITY_GUARD_PARAMS));
   const evidence = db.prepare('SELECT kind, COUNT(*) n FROM evidence_spans WHERE doc_id=? GROUP BY kind').all(d.id);
-  const evSnippets = db.prepare('SELECT kind, snippet FROM evidence_spans WHERE doc_id=? LIMIT 24').all(d.id);
+  const evSnippets = db.prepare(`SELECT id, kind, snippet FROM evidence_spans WHERE doc_id=?
+    ORDER BY CASE kind WHEN 'conflict' THEN 0 WHEN 'pending' THEN 1 WHEN 'pendingCollect' THEN 2 ELSE 3 END, id
+    LIMIT 80`).all(d.id);
   /* v8 · 3.3 五向互链补全（检查器原只有「人物/反链/证据」三向）：
      - 同时间事件：本文档登记在册的时间线事件（timeline_events.doc_id 直连）
      - 相关意象：正文里真实出现过的意象名（imagery 表逐名子串命中，非伪造）

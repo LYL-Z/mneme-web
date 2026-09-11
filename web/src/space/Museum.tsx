@@ -58,7 +58,7 @@ export function Museum({ focusId, onClearFocus, onOpenDoc }: {
     <div className="mu" ref={rootRef}>
       <header className="mu-head">
         <p className="greek mu-kicker">ΕΙΔΩΛΑ · Σ6</p>
-        <h2>意象博物馆</h2>
+        <h1>意象博物馆</h1>
         <p className="mu-sub">
           {mains.length} 件主意象常设展 · {cands.length} 件候选素牌——
           意象不重复自己，每一次登场都要长出新的意思。
@@ -69,7 +69,7 @@ export function Museum({ focusId, onClearFocus, onOpenDoc }: {
         {mains.map(it => (
           <button
             key={it.id}
-            className={`mu-case glass main ${cur?.item.id === it.id ? 'on' : ''}`}
+            className={`mu-case surface main ${cur?.item.id === it.id ? 'on' : ''}`}
             onClick={() => openCase(it)}
           >
             <span className="mu-no greek">{String(it.seq).padStart(2, '0')}</span>
@@ -82,12 +82,12 @@ export function Museum({ focusId, onClearFocus, onOpenDoc }: {
 
       {cands.length > 0 && (
         <>
-          <h3 className="mu-zone">候选素牌 · 待定陈列</h3>
+          <h2 className="mu-zone">候选素牌 · 待定陈列</h2>
           <div className="mu-cases">
             {cands.map(it => (
               <button
                 key={it.id}
-                className={`mu-case glass cand ${cur?.item.id === it.id ? 'on' : ''}`}
+                className={`mu-case surface cand ${cur?.item.id === it.id ? 'on' : ''}`}
                 onClick={() => openCase(it)}
               >
                 <span className="mu-no greek">{String(it.seq).padStart(2, '0')}</span>
@@ -101,12 +101,12 @@ export function Museum({ focusId, onClearFocus, onOpenDoc }: {
       )}
 
       {cur && (
-        <section className="mu-detail glass">
-          <h3>{cur.item.name.replace(/\*\*/g, '')}<span> · {cur.occ.length} 次登场轨迹</span></h3>
+        <section className="mu-detail surface">
+          <h2>{cur.item.name.replace(/\*\*/g, '')}<span> · {cur.occ.length} 次登场轨迹</span></h2>
 
           {cur.relatedImagery.length > 0 && (
             <div className="mu-related">
-              <h4>同卷共展</h4>
+              <h3>同卷共展</h3>
               <div className="study-chips">
                 {cur.relatedImagery.map(r => (
                   <button key={r.id} onClick={() => {
@@ -144,7 +144,7 @@ export function Museum({ focusId, onClearFocus, onOpenDoc }: {
           {cur.ledgerPath && (
             <button className="mu-ledger" onClick={() => onOpenDoc(cur.ledgerPath!)}>意象台账 · 原文 →</button>
           )}
-          <p className="mu-hint">登场明细自「意象台账」逐行登记，可回原文档案馆核对。</p>
+          <p className="mu-hint">登场明细自「意象台账」逐行登记，可回原文档案馆核对。次数与共现只说明材料密度，不证明文学意义。</p>
         </section>
       )}
     </div>

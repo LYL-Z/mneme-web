@@ -13,13 +13,13 @@ import { getLastChapter, getRecentDocs, timeAgo } from '../history';
  */
 /** 数字丰碑 · 库藏地位口径（用户口径 + 站内实时数并存；不改动知识库内容）
  *  v8：note 中的「已入馆」数字改为读 overview.docs，避免台账增删后文案过期（原硬编码 637，实际 646）。 */
-const MONUMENT: { n: string | null; u: string; label: string; note: string }[] = [
-  { n: '近 700', u: '份', label: '库藏档案', note: '公开层已入馆 {{docs}}' },
-  { n: '近 300', u: '万字', label: '总文字体量', note: '百万字长篇正在其上生长' },
-  { n: '46,000+', u: '份', label: '图片与影像附件', note: '相册 · 截图 · 扫描件' },
-  { n: '1 亿+', u: '条', label: '微信 / QQ 记录封存', note: '原料级语料，只读封存' },
-  { n: '10,000+', u: '字', label: '作者亲笔自撰', note: '百万长文已破万字真迹' },
-  { n: null, u: '位', label: '留名星尘', note: '名录中被记住的名字（站内实时统计）' },
+const MONUMENT: { live?: 'docs' | 'stardust'; n: string | null; u: string; label: string; note: string }[] = [
+  { live: 'docs', n: null, u: '份', label: '库藏档案', note: '公开层实时入馆篇数' },
+  { n: '近 300', u: '万字', label: '总文字体量', note: '2026-09 作者口径，不是站内实时字数' },
+  { n: '46,000+', u: '份', label: '图片与影像附件', note: '2026-09 作者口径 · 相册 · 截图 · 扫描件' },
+  { n: '1 亿+', u: '条', label: '微信 / QQ 记录封存', note: '2026-09 作者口径 · 原料级语料，只读封存' },
+  { n: '10,000+', u: '字', label: '作者亲笔自撰', note: '2026-09 作者口径 · 百万长文已破万字真迹' },
+  { live: 'stardust', n: null, u: '位', label: '留名星尘', note: '名录中被记住的名字（站内实时统计）' },
 ];
 
 function Monument({ stardust, docs }: { stardust: number | null; docs: number | null }) {
@@ -27,31 +27,35 @@ function Monument({ stardust, docs }: { stardust: number | null; docs: number | 
     <section className="monument st-atom">
       <div className="monument-head">
         <p className="greek monument-kicker">ΜΝΗΜΟΝΕΥΜΑ · 数字丰碑</p>
-        <h3>一座仍在生长的记忆基建</h3>
+        <h2>一座仍在生长的记忆基建</h2>
         <p className="monument-sub">
           这不是一份普通的笔记，而是一座以数字人文标准修建的私人记忆建筑：
           每一份材料可溯源、每一条存疑被标注、私密层加密门禁保护（未解锁不可读）。
         </p>
       </div>
       <div className="monument-grid">
-        {MONUMENT.map(m => (
-          <div key={m.label} className="monument-item glass">
-            <b>{m.n ?? (stardust != null ? stardust.toLocaleString() : '—')}<i>{m.u}</i></b>
+        {MONUMENT.map(m => {
+          const live = m.live === 'docs' ? docs : m.live === 'stardust' ? stardust : null;
+          const shown = live != null ? live.toLocaleString() : (m.n ?? '—');
+          return (
+          <div key={m.label} className="monument-item surface">
+            <b>{shown}<i>{m.u}</i></b>
             <span>{m.label}</span>
-            <em>{m.note.replace('{{docs}}', docs != null ? docs.toLocaleString() : '—')}</em>
+            <em>{m.note}</em>
           </div>
-        ))}
+          );
+        })}
       </div>
-      <div className="monument-method glass">
-        <h4>成书方法</h4>
+      <div className="monument-method surface">
+        <h3>成书方法</h3>
         <p>
           下一代大模型起草 —— <b>Claude Fable 5.1</b> · <b>GPT-6 Astra</b> · <b>Gemini 3.1 Pro</b> ——
           再由作者逐字润色补充；全程采用行业最领先的隐私安全实践：
           私密层加密门禁（未解锁不可读）、证据分级陈列、事实存疑必标【待核】。
         </p>
         <p className="monument-note">
-          口径说明：库藏规模为 2026-09 作者口径；「已入馆 {docs != null ? docs.toLocaleString() : '—'}」与留名星尘为站内公开层实时统计。
-          统计只反映体量，不代表任何人的重要性与亲疏。
+          口径说明：标了「作者口径」的是 2026-09 作者提供的体量，不是本站实时计数。
+          「库藏档案」与留名星尘为公开层实时统计。统计只反映体量，不代表任何人的重要性与亲疏。
         </p>
       </div>
     </section>
@@ -90,20 +94,20 @@ function Workbench({ overview, onOpenChapter, onOpenDoc, onEnterLighthouse }: {
       <p className="greek wb-kicker">ΕΡΓΑ · 工作台</p>
       <div className="wb-main">
         {lastCh ? (
-          <button className="wb-continue glass" onClick={() => onOpenChapter(lastCh.code, lastCh.seq)}>
+          <button className="wb-continue surface" onClick={() => onOpenChapter(lastCh.code, lastCh.seq)}>
             <span className="wb-label">继续上次章节</span>
             <b>{lastCh.title}</b>
             <span className="wb-meta">{lastCh.volume} · {timeAgo(lastCh.t)}</span>
             <span className="wb-go">打开材料链 →</span>
           </button>
         ) : (
-          <div className="wb-continue idle glass">
+          <div className="wb-continue idle surface">
             <span className="wb-label">继续上次章节</span>
             <p className="wb-none">尚无章节轨迹——五卷书房的每一辑都开着材料链的门。</p>
           </div>
         )}
-        <div className="wb-recent glass">
-          <h4>最近材料</h4>
+        <div className="wb-recent surface">
+          <h2>最近材料</h2>
           {recents.length > 0 ? recents.map(d => (
             <button key={d.path} className="wb-doc" onClick={() => onOpenDoc(d.path)} title={d.path}>
               <b>{d.title}</b>
@@ -191,7 +195,7 @@ export function Stars({ overview, theme, onEnterRiver, onOpenChapter, onOpenDoc,
 
       <section className="st-stats st-atom">
         {stats.map(s => (
-          <div key={s.label} className="stat glass">
+          <div key={s.label} className="stat surface">
             <b>{s.n.toLocaleString()}</b>
             <span>{s.label}</span>
           </div>
@@ -202,7 +206,7 @@ export function Stars({ overview, theme, onEnterRiver, onOpenChapter, onOpenDoc,
 
       <section className="st-volumes st-atom">
         {(overview?.volumes ?? []).slice(0, 5).map(v => (
-          <div key={v.code} className="vol glass" style={{ ['--vc' as string]: v.color_token }}>
+          <div key={v.code} className="vol surface" style={{ ['--vc' as string]: v.color_token }}>
             <i className="vol-dot" />
             <div>
               <b>{v.name}</b>
@@ -212,7 +216,7 @@ export function Stars({ overview, theme, onEnterRiver, onOpenChapter, onOpenDoc,
         ))}
       </section>
 
-      <button className="st-enter glass" onClick={onEnterRiver}>
+      <button className="st-enter surface" onClick={onEnterRiver}>
         顺流而下 · 进入时间之河 →
       </button>
     </div>

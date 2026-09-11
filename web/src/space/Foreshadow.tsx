@@ -44,7 +44,7 @@ export function Foreshadow({ onClose }: { onClose: () => void }) {
       <div className="fo glass" onMouseDown={e => e.stopPropagation()} ref={rootRef}>
         <header className="fo-head">
           <p className="greek fo-kicker">ΠΡΟΟΠΤΙΚΗ · 伏应矩阵</p>
-          <h3>伏笔 — 回收 · 跨卷配对图</h3>
+          <h1>伏笔 — 回收 · 跨卷配对图</h1>
           <p className="fo-sub">
             {rows.length} 条登记 · 数据来自运行台账「埋设即登记，回收时填章」。
             <span className="fo-legend">

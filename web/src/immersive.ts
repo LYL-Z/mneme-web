@@ -46,6 +46,19 @@ export function immRipple(): boolean {
   return (l === 'exquisite' || l === 'gentle') && !document.documentElement.classList.contains('no-motion');
 }
 
+/** 小屏 / 省流 / 减动效：跳过序章粒子与关闭湮灭，把首屏让给正文。 */
+export function skipHeavyFx(): boolean {
+  try {
+    if (document.documentElement.classList.contains('no-motion')) return true;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
+    if (matchMedia('(max-width: 960px)').matches) return true;
+    const c = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+    if (c?.saveData) return true;
+    if (c?.effectiveType === 'slow-2g' || c?.effectiveType === '2g') return true;
+  } catch { /* 旧内核无 Network Information */ }
+  return false;
+}
+
 /** 渐变模糊：绑定滚动容器 → 导航栏 --nav-sc（0 透明 → 1 模糊）。rAF 节流，卸载即停。 */
 export function bindGradientBlur(scrollEl: HTMLElement, navEl: HTMLElement): () => void {
   if (immLevel() === 'smooth') { navEl.style.setProperty('--nav-sc', '1'); return () => {}; }
@@ -123,4 +136,6 @@ export function watchFps(): void {
   };
   document.addEventListener('visibilitychange', onVis);
   raf = requestAnimationFrame(tick);
+  /* 健康帧只盯开场 10 秒；一直流畅就停，避免全站常驻 rAF。 */
+  window.setTimeout(() => { if (lowStreak === 0) stop(); }, 10_000);
 }

@@ -3,6 +3,8 @@
  * 对 vault 绝对只读；私密层零读取；公开层敏感字段入库前掩码。
  * 产物：ingest/mneme.db（SQLite，本地开发库）+ ingest/snapshot.json（PG 灌库快照）
  * 运行：node --experimental-sqlite ingest.mjs
+ * 增量：mtime 未变且 ingest 版本一致时跳过读盘，仍全量重建 SQLite（FTS/实体需全局重算）。
+ * 掩码规则或版本变更后请设 MNEME_INGEST_FULL=1。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,7 +24,7 @@ const PRIVACY_SEGS = new Set(['私人资料', '隐私']);
 const ASSET_EXT = /\.(png|jpe?g|gif|webp|svg|pdf|mp4|mp3|wav|zip|excalidraw|csv|txt)$/i;
 
 const startedAt = new Date().toISOString();
-const audit = { scanned: 0, ingested: 0, excluded_private: 0, excluded_private_other: 0, excluded_system: 0, excluded_excalidraw: 0, masked: 0, maskEvents: [], parseErrors: 0 };
+const audit = { scanned: 0, ingested: 0, excluded_private: 0, excluded_private_other: 0, excluded_system: 0, excluded_excalidraw: 0, masked: 0, maskEvents: [], parseErrors: 0, reused: 0 };
 
 /* ---------- 1. 遍历与分类（私密层零读取） ---------- */
 const rawFiles = [];
@@ -176,30 +178,9 @@ function evidenceSpans(text) {
   return spans;
 }
 
-/* ---------- 3. 文档解析 ---------- */
-const parsed = [];
-for (const f of rawFiles) {
-  const rel = f.rel;
-  const segs = rel.split('/');
-  const isPrivateMd = privateMdFiles.has(rel);
-  if (!rel.toLowerCase().endsWith('.md') || segs[0] === 'Excalidraw') continue;
-  let raw = ''; try { raw = fs.readFileSync(f.abs, 'utf8'); } catch { audit.parseErrors++; continue; }
-  const st = fs.statSync(f.abs);
-
-  let fm = '';
-  if (raw.startsWith('---')) { const end = raw.indexOf('\n---', 3); if (end > 0) fm = raw.slice(4, end); }
-  const bodyStart = raw.startsWith('---') && fm ? raw.indexOf('\n---', 3) + 4 : 0;
-  let body = raw.slice(bodyStart).replace(/^#\s.*\n/, '');
-  const titleM = raw.match(/^#\s+(.+)$/m);
-  const title = (titleM ? titleM[1].trim() : path.basename(rel, '.md')).replace(/^#+\s*/, '');
-
-  const docno = metaField(raw, '文件编号');
-  const masked = maskText(raw, rel);
-  const years = new Set();
-  for (const m of masked.text.matchAll(/(?<!\d)(20[0-2]\d)(?!\d)/g)) { const y = +m[1]; if (y >= 2000 && y <= 2026) years.add(y); }
-
+const linksFromText = (text) => {
   const links = [];
-  for (const m of masked.text.matchAll(/\[\[([^\]\[]+?)\]\]/g)) {
+  for (const m of text.matchAll(/\[\[([^\]\[]+?)\]\]/g)) {
     let target = m[1].split('|')[0].split('#')[0].trim();
     const display = m[1].includes('|') ? m[1].split('|')[1].trim() : null;
     if (!target || ASSET_EXT.test(target)) continue;
@@ -207,7 +188,77 @@ for (const f of rawFiles) {
     const base = target.split('/').pop();
     links.push({ target, base, display, private: privacySegTest(target) || privacyNorm.has(normKey(base)) || privacyNorm.has(normKey(target)) });
   }
+  return links;
+};
+const yearsFromText = (text) => {
+  const years = new Set();
+  for (const m of text.matchAll(/(?<!\d)(20[0-2]\d)(?!\d)/g)) {
+    const y = +m[1]; if (y >= 2000 && y <= 2026) years.add(y);
+  }
+  return [...years].sort();
+};
 
+function loadPrevDocs() {
+  const map = new Map();
+  if (process.env.MNEME_INGEST_FULL === '1' || !fs.existsSync(DB_PATH)) return map;
+  let old;
+  try {
+    old = new DatabaseSync(DB_PATH, { readOnly: true });
+    const last = old.prepare('SELECT manifest FROM audit_runs ORDER BY id DESC LIMIT 1').get();
+    const ver = last ? JSON.parse(last.manifest || '{}').version : '';
+    if (ver !== INGEST_VERSION) { old.close(); return map; }
+    for (const row of old.prepare('SELECT path, title, domain, doc_type, stage, volume, is_index, is_private, meta, body, raw_text, sha256, mtime FROM documents').all()) {
+      map.set(row.path, row);
+    }
+    old.close();
+  } catch {
+    try { if (old) old.close(); } catch { /* 旧库打不开就全量 */ }
+  }
+  return map;
+}
+
+/* ---------- 3. 文档解析 ---------- */
+const prevDocs = loadPrevDocs();
+const parsed = [];
+for (const f of rawFiles) {
+  const rel = f.rel;
+  const segs = rel.split('/');
+  const isPrivateMd = privateMdFiles.has(rel);
+  if (!rel.toLowerCase().endsWith('.md') || segs[0] === 'Excalidraw') continue;
+  let st; try { st = fs.statSync(f.abs); } catch { audit.parseErrors++; continue; }
+  const prev = prevDocs.get(rel);
+  const mtimeIso = st.mtime.toISOString();
+  if (prev && prev.mtime === mtimeIso && !!prev.is_private === isPrivateMd && prev.raw_text) {
+    let meta = null;
+    try { meta = JSON.parse(prev.meta || '{}'); } catch { meta = null; }
+    if (meta) {
+      parsed.push({
+        rel, abs: f.abs, title: prev.title, domain: prev.domain,
+        isPrivate: isPrivateMd,
+        doc_type: prev.doc_type, stage: prev.stage, volume: prev.volume,
+        meta,
+        tags: Array.isArray(meta.tags) ? meta.tags.join(',') : '',
+        body: prev.body, raw: prev.raw_text,
+        sha256: prev.sha256, mtime: prev.mtime,
+        years: yearsFromText(prev.raw_text),
+        links: linksFromText(prev.raw_text),
+        evidence: evidenceSpans(prev.raw_text),
+        isIndex: !!prev.is_index,
+      });
+      audit.reused++;
+      continue;
+    }
+  }
+  let raw = ''; try { raw = fs.readFileSync(f.abs, 'utf8'); } catch { audit.parseErrors++; continue; }
+
+  let fm = '';
+  if (raw.startsWith('---')) { const end = raw.indexOf('\n---', 3); if (end > 0) fm = raw.slice(4, end); }
+  const bodyStart = raw.startsWith('---') && fm ? raw.indexOf('\n---', 3) + 4 : 0;
+  const titleM = raw.match(/^#\s+(.+)$/m);
+  const title = (titleM ? titleM[1].trim() : path.basename(rel, '.md')).replace(/^#+\s*/, '');
+
+  const docno = metaField(raw, '文件编号');
+  const masked = maskText(raw, rel);
   parsed.push({
     rel, abs: f.abs, title, domain: isPrivateMd ? '私人资料' : domainOf(fmField(fm, '分类标签'), rel),
     isPrivate: isPrivateMd,
@@ -220,8 +271,9 @@ for (const f of rawFiles) {
     tags: fmTags(fm).join(','),
     body: masked.text.slice(bodyStart).replace(/^#\s.*\n/, ''), raw: masked.text,
     sha256: crypto.createHash('sha256').update(raw).digest('hex').slice(0, 16),
-    mtime: st.mtime.toISOString(), years: [...years].sort(),
-    links, evidence: evidenceSpans(masked.text),
+    mtime: mtimeIso, years: yearsFromText(masked.text),
+    links: linksFromText(masked.text),
+    evidence: evidenceSpans(masked.text),
     isIndex: /^00-|索引|总览$|选编|标准库/.test(path.basename(rel, '.md')),
   });
 }
@@ -636,7 +688,7 @@ fs.writeFileSync(SNAP_PATH, JSON.stringify(snap));
 
 /* ---------- 10. 摘要 ---------- */
 console.log('=== ΜΝΗΜΗ M1 ETL 完成 ===');
-console.log(`documents=${parsed.length} entities=${entities.length} edges(resolved/unresolved/private)=${resolvedEdges}/${unresolvedEdges}/${privateEdges}`);
+console.log(`documents=${parsed.length} reused=${audit.reused} entities=${entities.length} edges(resolved/unresolved/private)=${resolvedEdges}/${unresolvedEdges}/${privateEdges}`);
 console.log(`volumes=${VOLUMES.length} chapters=${chapters.length}(样章${chapters.filter(c => c.is_sample).length}) imagery=${imagery.length}(候选${imagery.filter(i => i.candidate).length}) occ=${imageryOcc.length}`);
 console.log(`questionnaires=${questionnaires.length} timeline=${timeline.length}(锚点${timeline.filter(t => t.kind === 'anchor').length}) evidenceSpans=${parsed.reduce((s, d) => s + d.evidence.length, 0)} masked=${audit.masked}`);
 console.log(`excluded: private=${audit.excluded_private}(+other ${audit.excluded_private_other}) system=${audit.excluded_system} excalidraw=${audit.excluded_excalidraw} parseErrors=${audit.parseErrors}`);

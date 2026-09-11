@@ -12,8 +12,12 @@ import { Announce } from './space/Announce';
 import { BGM } from './space/BGM';
 import { immLevel, bindGradientBlur, bindPressRipple, watchFps } from './immersive';
 import { Foreshadow } from './space/Foreshadow';
+import { ShortcutsHelp, G_THEN } from './space/Shortcuts';
 import { readPrefs } from './space/Wellness';
+import { useFocusTrap } from './focusTrap';
 import { stageAnchorYear } from './stages';
+import { parseLocation, routeId, routeToPath, migrateHashIfNeeded, type Route, type SpaceKey, type RiverQuery } from './route';
+import { resumeTarget } from './history';
 
 /* v4 · B1 路由代码分割：d3-force（Graph）与重型空间按需加载，首屏只载 记忆恒星+导航 */
 const River = lazy(() => import('./space/River').then(m => ({ default: m.River })));
@@ -29,13 +33,13 @@ const Lazy = ({ children }: { children: React.ReactNode }) => (
   <Suspense fallback={<div className="space-loading" aria-label="加载中" />}>{children}</Suspense>
 );
 
-/** v3.5 · 四分组导航（审查文档「建议的信息架构」）：工作台 / 资料 / 书稿 / 探索 + 治理
- *  文学化名称为主名、功能名作副题；Σ 编号从导航退役（各空间页内页眉仍保留），响应「降低重复希腊标签」。
- *  证据灯塔独立成组——它既是展示空间，也是后续右侧来源检查器的全局入口。 */
+/** v3.5 · 四分组导航：工作台把阅读放在第一位（正文才是产品） */
 const NAV_GROUPS = [
-  { label: '工作台', spaces: [{ key: 'stars', name: '记忆恒星', sub: '总览' }] },
-  { label: '资料', spaces: [
+  { label: '工作台', spaces: [
     { key: 'archive', name: '原文档案馆', sub: '阅读' },
+    { key: 'stars', name: '记忆恒星', sub: '门厅' },
+  ] },
+  { label: '资料', spaces: [
     { key: 'graph', name: '人物星图', sub: '人物' },
     { key: 'river', name: '时间之河', sub: '时间线' },
     { key: 'themes', name: '主题域', sub: '十域' },
@@ -46,8 +50,12 @@ const NAV_GROUPS = [
   { label: '治理', spaces: [{ key: 'lighthouse', name: '证据灯塔', sub: '证据' }] },
 ] as const;
 
-type SpaceKey = (typeof NAV_GROUPS)[number]['spaces'][number]['key'];
-const SPACE_KEYS = NAV_GROUPS.flatMap(g => g.spaces.map(s => s.key)) as readonly SpaceKey[];
+const MOBILE_TABS: { label: string; go: SpaceKey; match: readonly SpaceKey[] }[] = [
+  { label: '阅读', go: 'archive', match: ['archive'] },
+  { label: '资料', go: 'graph', match: ['graph', 'river', 'themes', 'voices'] },
+  { label: '书稿', go: 'study', match: ['study'] },
+];
+const MORE_KEYS: SpaceKey[] = ['stars', 'museum', 'lighthouse'];
 
 /** 总纲 · 站点目录（Σ 空间一句话导览，v4） */
 const TOC: Record<SpaceKey, { greek: string; name: string; line: string }> = {
@@ -61,51 +69,6 @@ const TOC: Record<SpaceKey, { greek: string; name: string; line: string }> = {
   voices: { greek: 'Σ8', name: '他者之声', line: '问卷精选对照（V1–V3 三轮采集）' },
   lighthouse: { greek: 'Σ9', name: '证据灯塔', line: '证据分级与全库审计' },
 };
-
-type Route =
-  | { v: 'space'; key: SpaceKey }
-  | { v: 'doc'; path: string; h?: string }
-  | { v: 'person'; id: number }
-  | { v: 'imagery'; id: number }
-  | { v: 'volume'; code: string }
-  | { v: 'foreshadow' }
-  | { v: 'chapter'; code: string; seq: number };
-
-const routeId = (r: Route) =>
-  r.v === 'space' ? `space:${r.key}`
-  : r.v === 'doc' ? `doc:${r.path}${r.h ? `#${r.h}` : ''}`
-  : r.v === 'person' ? `person:${r.id}`
-  : r.v === 'imagery' ? `imagery:${r.id}`
-  : r.v === 'volume' ? `volume:${r.code}`
-  : r.v === 'foreshadow' ? 'foreshadow'
-  : `chapter:${r.code}:${r.seq}`;
-
-const hashToRoute = (): Route => {
-  const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
-  const [head, tail] = [h.split('/')[0], h.split('/').slice(1).join('/')];
-  if (head === 'doc' && tail) {
-    const qi = tail.indexOf('?h=');
-    const path = qi >= 0 ? tail.slice(0, qi) : tail;
-    const h2 = qi >= 0 ? tail.slice(qi + 3) : '';
-    return { v: 'doc', path, h: h2 || undefined };
-  }
-  if (head === 'person' && /^\d+$/.test(tail)) return { v: 'person', id: +tail };
-  if (head === 'imagery' && /^\d+$/.test(tail)) return { v: 'imagery', id: +tail };
-  if (head === 'volume' && tail) return { v: 'volume', code: tail.toUpperCase() };
-  const cm = tail.match(/^([A-Za-z0-9]+)\/(\d+)$/);
-  if (head === 'chapter' && cm) return { v: 'chapter', code: cm[1].toUpperCase(), seq: +cm[2] };
-  if (head === 'foreshadow') return { v: 'foreshadow' };
-  if (head === 'space' && (SPACE_KEYS as readonly string[]).includes(tail)) return { v: 'space', key: tail as SpaceKey };
-  return { v: 'space', key: 'stars' };
-};
-const routeToHash = (r: Route) =>
-  r.v === 'space' ? `#/space/${r.key}`
-  : r.v === 'doc' ? `#/doc/${encodeURIComponent(r.path)}${r.h ? `?h=${encodeURIComponent(r.h)}` : ''}`
-  : r.v === 'person' ? `#/person/${r.id}`
-  : r.v === 'imagery' ? `#/imagery/${r.id}`
-  : r.v === 'chapter' ? `#/chapter/${r.code}/${r.seq}`
-  : r.v === 'foreshadow' ? '#/foreshadow'
-  : `#/volume/${r.code}`;
 
 /* 每条路由的阅读位置（v4 · A3 起跨会话持久化：localStorage，LRU 上限 80 条） */
 const SCROLL_KEY = 'mneme-scroll';
@@ -140,17 +103,42 @@ export default function App() {
   useEffect(() => {
     if (!gateDone) return;
     const host = document.querySelector('.space-host') as HTMLElement | null;
-    const nav = document.getElementById('topNav');
+    const nav = document.querySelector('.topbar') as HTMLElement | null;
     if (!host || !nav) return;
     const offBlur = bindGradientBlur(host, nav);
     const offRipple = bindPressRipple(document.body);
     return () => { offBlur(); offRipple(); };
   }, [gateDone]);
   const [ov, setOv] = useState<Overview | null>(null);
-  const [route, setRoute] = useState<Route>(() => hashToRoute());
+  const [route, setRoute] = useState<Route>(() => {
+    migrateHashIfNeeded();
+    /* `/` 续读上次材料；显式 `/space/stars` 仍是门厅，避免「记忆恒星」点不回去。 */
+    const path = location.pathname.replace(/\/+$/, '') || '/';
+    if (path === '/') {
+      const r = resumeTarget();
+      if (r) {
+        const next: Route = r.kind === 'doc'
+          ? { v: 'doc', path: r.path }
+          : { v: 'chapter', code: r.code, seq: r.seq };
+        history.replaceState(null, '', routeToPath(next));
+        return next;
+      }
+    }
+    return parseLocation();
+  });
   const [riverFocus, setRiverFocus] = useState<{ year: number; eventId?: number } | null>(null);
   const [ckOpen, setCkOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [gPending, setGPending] = useState(false);
+  const gPendingRef = useRef(false);
+  const gTimer = useRef(0);
   const [tocOpen, setTocOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  const tocRef = useRef<HTMLDivElement>(null);
+  const readBarRef = useRef<HTMLSpanElement>(null);
+  useFocusTrap(moreRef, moreOpen, () => setMoreOpen(false));
+  useFocusTrap(tocRef, tocOpen, () => setTocOpen(false));
   const [foCount, setFoCount] = useState<number | null>(null);
   const [theme, setTheme] = useState<'paper' | 'night'>(() => {
     const saved = localStorage.getItem('mneme-theme');
@@ -191,12 +179,12 @@ export default function App() {
     api.foreshadow().then(rows => setFoCount(rows.length)).catch(() => {});
   }, [tocOpen, foCount]);
 
-  /* ---------- hash 路由：导航只写 hash，hashchange 统一应用 ---------- */
+  /* History API：前进后退走 popstate；旧 hash 书签在首次进入时改写 */
   useEffect(() => {
-    const apply = () => setRoute(hashToRoute());
-    if (!location.hash) history.replaceState(null, '', routeToHash(routeRef.current));
-    window.addEventListener('hashchange', apply);
-    return () => window.removeEventListener('hashchange', apply);
+    migrateHashIfNeeded();
+    const apply = () => setRoute(parseLocation());
+    window.addEventListener('popstate', apply);
+    return () => window.removeEventListener('popstate', apply);
   }, []);
 
   /* 空间切换动画（首挂载跳过；v3.3 收窄至 260ms——审查预算：面板切换 180–260ms，操作感优先于展陈） */
@@ -229,22 +217,30 @@ export default function App() {
   useEffect(() => {
     const host = mainRef.current;
     if (!host || !gateDone) return;
-    if (route.v === 'doc' && route.h) return; // 锚点深链：跳过位置恢复，交给锚点定位滚动
+    if (route.v === 'doc' && (route.h || route.q || route.ev != null)) return; // 锚点 / 检索词 / 证据深链：交给正文定位
     const saved = scrollMemo.get(routeId(route));
     host.scrollTop = saved ?? 0;
   }, [route, gateDone]);
 
-  /* ⌘K / Ctrl+K 全局唤起 */
+  /* 原文阅读进度：只改 transform，不触发 App 重绘 */
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-        e.preventDefault();
-        setCkOpen(v => !v);
-      }
+    const host = mainRef.current;
+    const bar = readBarRef.current;
+    const wrap = bar?.parentElement;
+    if (!host || !bar || !wrap) return;
+    const isDoc = route.v === 'doc';
+    wrap.classList.toggle('on', isDoc);
+    wrap.setAttribute('aria-hidden', isDoc ? 'false' : 'true');
+    const upd = () => {
+      if (!isDoc) { bar.style.transform = 'scaleX(0)'; return; }
+      const max = host.scrollHeight - host.clientHeight;
+      const p = max <= 0 ? 1 : Math.min(1, host.scrollTop / max);
+      bar.style.transform = `scaleX(${p})`;
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+    upd();
+    host.addEventListener('scroll', upd, { passive: true });
+    return () => host.removeEventListener('scroll', upd);
+  }, [route, gateDone]);
 
   /* 主题持久化 + <html data-theme> 挂载（M6 双主题） */
   useEffect(() => {
@@ -253,20 +249,6 @@ export default function App() {
     else root.removeAttribute('data-theme');
     localStorage.setItem('mneme-theme', theme);
   }, [theme]);
-
-  /* v3.5 导航溢出提示：实测 scrollWidth>clientWidth 才挂 .scrolls（右缘渐隐）。
-     ResizeObserver 跟随视口与内容宽度变化；阈值随导航实际宽度浮动，不用媒体断点。 */
-  useEffect(() => {
-    if (!gateDone) return;
-    const el = document.querySelector('.nav-spaces') as HTMLElement | null;
-    if (!el) return;
-    const check = () => el.classList.toggle('scrolls', el.scrollWidth > el.clientWidth + 1);
-    check();
-    const ro = new ResizeObserver(check);
-    ro.observe(el);
-    window.addEventListener('resize', check);
-    return () => { ro.disconnect(); window.removeEventListener('resize', check); };
-  }, [gateDone]);
 
   /* Liquid Glass（M6.5）：置换能力行为级探测 + 鼠标跟随光（rAF 节流委托）
      探测元素必须先附着 DOM——游离元素的 getComputedStyle 返回空串，曾致 Chromium 误判无置换 */
@@ -305,12 +287,21 @@ export default function App() {
     if (!sessionStorage.getItem('mneme-anno')) setAnnoOpen(true); // v4 · 致谢公告：每次会话首次进入弹一次
   };
 
-  /* ---------- 导航：只写 hash，路由状态由 hashchange 统一应用 ---------- */
-  const go = useCallback((r: Route) => {
-    const h = routeToHash(r);
-    if (location.hash === h) setRoute(r); else location.hash = h;
+  /* ---------- 导航：pushState；筛选类改写用 replace，避免把每次点选都推进历史 ---------- */
+  const go = useCallback((r: Route, mode: 'push' | 'replace' = 'push') => {
+    const next = routeToPath(r);
+    const here = `${location.pathname}${location.search}`;
+    if (here !== next) {
+      if (mode === 'replace') history.replaceState(null, '', next);
+      else history.pushState(null, '', next);
+    }
+    setRoute(r);
   }, []);
-  const openDoc = useCallback((p: string, h?: string) => { if (p) go({ v: 'doc', path: p, h }); }, [go]);
+  const openDoc = useCallback((p: string, h?: string, ev?: number, q?: string) => {
+    if (!p) return;
+    const query = q?.trim().slice(0, 48) || undefined;
+    go({ v: 'doc', path: p, h, ev, q: query });
+  }, [go]);
   const openPerson = useCallback((id: number) => go({ v: 'person', id }), [go]);
   const openImagery = useCallback((id: number) => go({ v: 'imagery', id }), [go]);
   const openVolume = useCallback((code: string) => go({ v: 'volume', code }), [go]);
@@ -318,7 +309,9 @@ export default function App() {
   const openSpace = useCallback((key: SpaceKey) => go({ v: 'space', key }), [go]);
   const openRiver = useCallback((year?: number, eventId?: number) => {
     setRiverFocus(year != null ? { year, eventId } : null);
-    go({ v: 'space', key: 'river' });
+    const prev = routeRef.current.v === 'space' && routeRef.current.key === 'river' ? routeRef.current.river : undefined;
+    const river: RiverQuery | undefined = year != null ? { ...prev, y: year } : prev;
+    go({ v: 'space', key: 'river', river });
   }, [go]);
   /* v8 · 3.3 五向互链：检查器的「域 / 学段」两个跳转目标需要先设焦点再切空间 */
   const [themesFocus, setThemesFocus] = useState<string | null>(null);
@@ -331,10 +324,97 @@ export default function App() {
     if (y != null) openRiver(y);
   }, [openRiver]);
 
+  const clearG = () => {
+    gPendingRef.current = false;
+    setGPending(false);
+    window.clearTimeout(gTimer.current);
+  };
+
+  /* ⌘K / Ctrl+K / / 检索；? 快捷键面板；g 然后字母跳转 */
+  useEffect(() => {
+    const typing = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      return !!(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable));
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setCkOpen(v => !v);
+        setHelpOpen(false);
+        clearG();
+        return;
+      }
+      if (ckOpen) return;
+      if (typing(e)) return;
+      if (e.key === 'Escape') {
+        if (moreOpen) { e.preventDefault(); setMoreOpen(false); }
+        else if (helpOpen) { e.preventDefault(); setHelpOpen(false); }
+        else if (tocOpen) { e.preventDefault(); setTocOpen(false); }
+        clearG();
+        return;
+      }
+      if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+        e.preventDefault();
+        setHelpOpen(v => !v);
+        clearG();
+        return;
+      }
+      if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        setHelpOpen(false);
+        clearG();
+        setCkOpen(true);
+        return;
+      }
+      if (helpOpen) return;
+      if (gPendingRef.current) {
+        e.preventDefault();
+        const chord = G_THEN[e.key.toLowerCase()];
+        clearG();
+        if (!chord) return;
+        if (chord.t === 'foreshadow') go({ v: 'foreshadow' });
+        else go({ v: 'space', key: chord.key });
+        return;
+      }
+      if (e.key === 'g' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        gPendingRef.current = true;
+        setGPending(true);
+        window.clearTimeout(gTimer.current);
+        gTimer.current = window.setTimeout(clearG, 1200);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.clearTimeout(gTimer.current);
+    };
+  }, [ckOpen, helpOpen, moreOpen, tocOpen, go]);
+
   const spaceKey: SpaceKey = route.v === 'space' ? route.key : route.v === 'doc' ? 'archive' : route.v === 'person' ? 'graph' : route.v === 'imagery' ? 'museum' : 'study';
+  const overlayOpen = tocOpen || ckOpen || helpOpen || moreOpen || annoOpen
+    || route.v === 'chapter' || route.v === 'foreshadow';
+  useEffect(() => {
+    const desk = document.querySelector('.desk');
+    if (!(desk instanceof HTMLElement)) return;
+    if (overlayOpen) desk.setAttribute('inert', '');
+    else desk.removeAttribute('inert');
+  }, [overlayOpen]);
+  const ckHint = /Mac|iP(hone|ad|od)/.test(navigator.platform) ? '⌘K' : 'Ctrl+K';
 
   return (
     <>
+      <a className="skip-link" href="#mneme-main">跳到正文</a>
+      <p className="sr-only" aria-live="polite">{
+        route.v === 'space' ? TOC[route.key]?.name
+          : route.v === 'doc' ? '原文'
+          : route.v === 'person' ? '人物'
+          : route.v === 'imagery' ? '意象'
+          : route.v === 'volume' ? route.code
+          : route.v === 'chapter' ? `章节 ${route.code}-${route.seq}`
+          : '伏应矩阵'
+      }</p>
       <div className="paper-field" />
 
       {/* Liquid Glass 位移滤镜（v3.4）：feTurbulence + feDisplacementMap 的真实折射
@@ -353,32 +433,69 @@ export default function App() {
       {gateDone && (
         <>
           {annoOpen && <Announce onClose={() => setAnnoOpen(false)} />}
-          <header className="nav glass" id="topNav">
-            <div className="nav-brand">
-              <span className="greek nav-greek">ΜΝΗΜΗ</span>
-              <span className="nav-sep" />
-              <span className="nav-sub">刘佑林的前半生 · 数字传记装置</span>
+          <div className="desk">
+          <aside className="rail" aria-label="空间导航">
+            <div className="rail-desk">
+            <div className="rail-brand">
+              <span className="greek rail-greek">ΜΝΗΜΗ</span>
+              <span className="rail-sub">刘佑林的前半生</span>
             </div>
-            <nav className="nav-spaces" aria-label="空间导航">
-              {NAV_GROUPS.map(g => (
-                <div key={g.label} className={`nav-group ${g.spaces.some(s => spaceKey === s.key) ? 'on' : ''}`}>
-                  <span className="nav-group-label">{g.label}</span>
-                  <div className="nav-group-row">
-                    {g.spaces.map(s => (
-                      <button
-                        key={s.key}
-                        className={`nav-space ${spaceKey === s.key ? 'on' : ''}`}
-                        onClick={() => openSpace(s.key)}
-                        title={s.name}
-                      >
-                        <span className="nav-space-name">{s.name}</span>
-                        <span className="nav-space-sub">{s.sub}</span>
-                      </button>
-                    ))}
-                  </div>
+            {NAV_GROUPS.map(g => (
+              <div key={g.label} className={`rail-group ${g.spaces.some(s => spaceKey === s.key) ? 'on' : ''}`}>
+                <span className="rail-group-label">{g.label}</span>
+                <div className="nav-group-row">
+                  {g.spaces.map(s => (
+                    <button
+                      key={s.key}
+                      className={`rail-space ${spaceKey === s.key ? 'on' : ''}`}
+                      onClick={() => openSpace(s.key)}
+                      title={s.name}
+                    >
+                      <span className="rail-space-name">{s.name}</span>
+                      <span className="rail-space-sub">{s.sub}</span>
+                    </button>
+                  ))}
                 </div>
-              ))}
+              </div>
+            ))}
+            <div className="rail-foot">
+              <button className="rail-link" onClick={() => setTocOpen(true)}>总纲 · 全馆导览</button>
+              <button className="rail-link" onClick={() => go({ v: 'foreshadow' })}>伏应矩阵</button>
+            </div>
+            </div>
+            <nav className="rail-tabs" aria-label="主要分区">
+              {MOBILE_TABS.map(tab => {
+                const on = route.v !== 'foreshadow' && (tab.match as readonly string[]).includes(spaceKey);
+                return (
+                  <button
+                    key={tab.label}
+                    type="button"
+                    className={`rail-tab ${on ? 'on' : ''}`}
+                    onClick={() => { setMoreOpen(false); if (!on) openSpace(tab.go); }}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                className={`rail-tab ${moreOpen || route.v === 'foreshadow' || MORE_KEYS.includes(spaceKey) ? 'on' : ''}`}
+                onClick={() => setMoreOpen(v => !v)}
+              >
+                更多
+              </button>
             </nav>
+          </aside>
+          <header className="topbar">
+            <div className="read-bar" aria-hidden="true"><span ref={readBarRef} /></div>
+            <button className="top-search" onClick={() => setCkOpen(true)} aria-label="检索全库">
+              <span>检索原文、人物、时间线…</span>
+              <kbd>{ckHint}</kbd>
+            </button>
+            <button className="top-keys" onClick={() => setHelpOpen(true)} aria-label="键盘快捷键" title="快捷键">
+              <kbd>?</kbd>
+            </button>
+            <div className="topbar-actions">
             <button
               className="nav-logout"
               aria-label="退出本次访问"
@@ -404,9 +521,10 @@ export default function App() {
                 </svg>
               )}
             </button>
+            </div>
           </header>
 
-          <main ref={mainRef} className="space-host">
+          <main ref={mainRef} id="mneme-main" className="space-host" tabIndex={-1}>
             {/* 空间级错误边界：任一空间组件抛异常只坏这一块，导航与其余空间仍可用（原先整页白屏） */}
             <ErrorBoundary resetKey={routeId(route)} label={TOC[spaceKey]?.name}>
             {spaceKey === 'stars' && (
@@ -420,7 +538,17 @@ export default function App() {
                 onOpenPerson={openPerson}
               />
             )}
-            {spaceKey === 'river' && <Lazy><River onOpenDoc={openDoc} focus={riverFocus} onFocusDone={() => setRiverFocus(null)} /></Lazy>}
+            {spaceKey === 'river' && (
+              <Lazy>
+                <River
+                  onOpenDoc={openDoc}
+                  focus={riverFocus}
+                  onFocusDone={() => setRiverFocus(null)}
+                  query={route.v === 'space' && route.key === 'river' ? route.river : undefined}
+                  onQuery={river => go({ v: 'space', key: 'river', river }, 'replace')}
+                />
+              </Lazy>
+            )}
             {spaceKey === 'graph' && (
               <Lazy>
                 <Graph
@@ -436,6 +564,8 @@ export default function App() {
                 <Archive
                   path={route.v === 'doc' ? route.path : '00-知识库首页'}
                   anchor={route.v === 'doc' ? route.h : undefined}
+                  evidenceId={route.v === 'doc' ? route.ev : undefined}
+                  query={route.v === 'doc' ? route.q : undefined}
                   onNavigate={openDoc} onOpenPerson={openPerson}
                   onOpenVolume={openVolume} onOpenDomain={openDomain} onOpenStage={openStage}
                   onOpenImagery={openImagery} onOpenEvent={openRiver}
@@ -466,9 +596,10 @@ export default function App() {
                 />
               </Lazy>
             )}
-            {spaceKey === 'lighthouse' && <Lazy><Lighthouse overview={ov} /></Lazy>}
+            {spaceKey === 'lighthouse' && <Lazy><Lighthouse overview={ov} onOpenDoc={openDoc} /></Lazy>}
             </ErrorBoundary>
           </main>
+          </div>
 
           <button className="toc-hint glass" onClick={() => setTocOpen(true)}>
             <span className="greek">ΓΡΑΜΜΗ</span> 总纲
@@ -477,7 +608,7 @@ export default function App() {
             <span className="greek">⌘K</span> 检索全库
           </button>
 
-          {/* v3.4 · P3 章节材料链面板（路由驱动：#/chapter/V3/3；关闭回书房，浏览器返回同效） */}
+          {/* 章节材料链面板（路由驱动：/chapter/V3/3；关闭回书房，浏览器返回同效） */}
           {route.v === 'chapter' && (
             <Lazy>
               <ChapterPanel
@@ -493,6 +624,37 @@ export default function App() {
             onOpenDoc={openDoc} onOpenPerson={openPerson} onOpenRiver={openRiver}
             onOpenImagery={openImagery} onOpenVolume={openVolume} onOpenChapter={openChapter}
           />
+          <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+          {gPending && <div className="g-pending glass" role="status">g …</div>}
+          {moreOpen && (
+            <div className="more-mask" onMouseDown={() => setMoreOpen(false)} role="presentation">
+              <div ref={moreRef} className="more-sheet glass" onMouseDown={e => e.stopPropagation()} role="dialog" aria-labelledby="more-title" aria-modal="true">
+                <p className="greek more-kicker">ΠΛΕΟΝ</p>
+                <h1 id="more-title">全馆</h1>
+                <div className="more-list">
+                  {NAV_GROUPS.map(g => g.spaces.map(s => (
+                    <button
+                      key={s.key}
+                      type="button"
+                      className={`more-item ${spaceKey === s.key ? 'on' : ''}`}
+                      onClick={() => { setMoreOpen(false); openSpace(s.key); }}
+                    >
+                      <b>{s.name}</b><span>{g.label}</span>
+                    </button>
+                  )))}
+                  <button type="button" className="more-item" onClick={() => { setMoreOpen(false); go({ v: 'foreshadow' }); }}>
+                    <b>伏应矩阵</b><span>书稿</span>
+                  </button>
+                  <button type="button" className="more-item" onClick={() => { setMoreOpen(false); setTocOpen(true); }}>
+                    <b>总纲</b><span>导览</span>
+                  </button>
+                  <button type="button" className="more-item" onClick={() => { setMoreOpen(false); window.dispatchEvent(new CustomEvent('mneme:prefs')); }}>
+                    <b>偏好</b><span>动效 · 音乐</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {route.v === 'foreshadow' && (
             <Lazy>
@@ -506,16 +668,16 @@ export default function App() {
 
           {tocOpen && (
             <div className="toc-mask" onMouseDown={() => setTocOpen(false)}>
-              <div className="toc glass" onMouseDown={e => e.stopPropagation()}>
+              <div ref={tocRef} className="toc glass" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="toc-title">
                 <header className="toc-head">
                   <p className="greek toc-kicker">ΠΕΡΙΗΓΗΣΙΣ · 总纲</p>
-                  <h3>全馆导览</h3>
+                  <h1 id="toc-title">全馆导览</h1>
                   <button className="gp-sheet-x" onClick={() => setTocOpen(false)} aria-label="关闭">×</button>
                 </header>
                 <div className="toc-list">
                   {NAV_GROUPS.map(g => (
                     <section key={g.label} className="toc-group">
-                      <h4>{g.label}</h4>
+                      <h2>{g.label}</h2>
                       {g.spaces.map(s => (
                         <button key={s.key} className="toc-item" onClick={() => { setTocOpen(false); openSpace(s.key); }}>
                           <span className="greek toc-g">{TOC[s.key].greek}</span>
@@ -531,7 +693,7 @@ export default function App() {
                   <b>伏应矩阵</b>
                   <span className="toc-line">{foCount == null ? '伏笔—回收跨卷配对图（创作台账）' : `${foCount} 条伏笔—回收跨卷配对图（创作台账）`}</span>
                 </button>
-                <footer className="toc-foot">⌘K 检索全库 · 双击时间之河起航 · 绝密档案需解锁</footer>
+                <footer className="toc-foot">⌘K 检索 · g 然后字母跳转 · ? 查看键位</footer>
               </div>
             </div>
           )}

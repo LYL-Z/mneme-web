@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { animate, stagger } from 'animejs';
 
+import { skipHeavyFx } from '../immersive';
+
 /**
  * Σ0 序章之门 · 一次性入场（2.4s master timeline）
  * 0.00–0.60 手册封面翻启（rotateY 展开）
@@ -8,6 +10,7 @@ import { animate, stagger } from 'animejs';
  * 0.50–1.30 副题与格言浮现
  * 1.30–2.30 化星汇聚：星尘自边缘飞向主恒星，题字退为幽灵
  * 2.30–2.40 门整体淡出 → onDone
+ * 小屏 / 省流 / 减动效：立即放行，不挡首屏 LCP。
  */
 const SPARKS = 36;
 
@@ -16,11 +19,12 @@ export function Gate({ onDone }: { onDone: () => void }) {
   const done = useRef(false);
   const [skipOn, setSkipOn] = useState(false);
 
+  const lite = skipHeavyFx();
   useEffect(() => {
-    const root = rootRef.current!;
-    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (lite) { if (!done.current) { done.current = true; onDone(); } return; }
+    const root = rootRef.current;
+    if (!root) return;
     const finish = () => { if (!done.current) { done.current = true; onDone(); } };
-    if (reduce) { finish(); return; }
     const skipT = setTimeout(() => setSkipOn(true), 700); // 0.7s 后出现「跳过序章」
     const autoT = setTimeout(finish, 2870);
 
@@ -73,7 +77,9 @@ export function Gate({ onDone }: { onDone: () => void }) {
     /* 2.30 门淡出 */
     animate(root, { opacity: [1, 0], duration: 520, ...D(2320), ease: 'outQuad' });
     return () => { clearTimeout(skipT); clearTimeout(autoT); };
-  }, [onDone]);
+  }, [lite, onDone]);
+
+  if (lite) return null;
 
   return (
     <div

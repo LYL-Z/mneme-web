@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { animate, stagger } from 'animejs';
 import { annihilate, prepareSnapshot } from '../annihilate';
-import { bgmGet, bgmSet } from '../bgm';
+import { skipHeavyFx } from '../immersive';
 
 /**
  * v4 · 致谢公告（口令通过后、进首页前弹一次，sessionStorage 记忆）。
@@ -45,10 +45,8 @@ export function Announce({ onClose }: { onClose: () => void }) {
     if (closing.current) return;
     closing.current = true;
     try { sessionStorage.setItem('mneme-anno', '1'); } catch { /* 静默 */ }
-    /* 关窗点击是用户手势：同步开播，浏览器才允许 audio.play */
-    if (!bgmGet().on) bgmSet({ on: true, vol: bgmGet().vol || 0.3 });
     const card = rootRef.current?.querySelector('.anno-card') as HTMLElement | null;
-    if (card) annihilate(card, onClose);
+    if (card && !skipHeavyFx()) annihilate(card, onClose);
     else onClose();
   };
 
@@ -57,11 +55,11 @@ export function Announce({ onClose }: { onClose: () => void }) {
       <div className="anno-card glass" onMouseDown={e => e.stopPropagation()}>
         <div className="anno-glow" aria-hidden />
         <p className="greek anno-kicker">ΕΥΧΑΡΙΣΤΩ · 致谢</p>
-        <h2 className="anno-title">
+        <h1 className="anno-title">
           感谢家人、同学、朋友们的鼎力支持，
           <br />传记将于 <b className="anno-year">2027</b> 年启动撰写，
           <br />同时感谢各企业的支持。
-        </h2>
+        </h1>
         <div className="anno-wall" aria-label="支持企业">
           {SPONSORS.map(([key, name]) => (
             <figure key={key} className="anno-logo" title={name}>

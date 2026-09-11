@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { animate, stagger } from 'animejs';
-import { api, apiErrorMessage, type Entity, type TimelineEvent } from '../api';
+import { api, apiErrorMessage, type TimelineEvent } from '../api';
 import { notify } from '../toast';
 import { STAGE_EPOCH, YEAR_MAX, YEAR_MIN } from '../stages';
+import type { RiverQuery } from '../route';
 
 /**
  * Σ2 时间之河 · v5.1「无限之河」
@@ -12,13 +13,26 @@ import { STAGE_EPOCH, YEAR_MAX, YEAR_MIN } from '../stages';
  * - v5.1 时间之船缓速巡航（0.55px/帧 ≈ 每年约 4.5 秒，渐入无级变速——时间慢慢流转）
  * - v5.1 事件卡扇形错位（同行左右交替逐层外移）+ 栈距 12→18：密集年份不再相互遮挡缺失
  * - 双击河面：时间之船起航自动向右巡航；单击 / 滚轮 / 拖拽随时停靠
- * - 河水双层相位波；家族口径脱敏；诞辰刻度；学段色带
+ * - 河水双层相位波；公开层标题按库内原文陈列（人名入库前已脱敏）；诞辰刻度；学段色带
  */
 const IS_NARROW = typeof window !== 'undefined' && window.innerWidth < 640;
 const COL_W = IS_NARROW ? 172 : 210;
 /* 学段区间表收敛到 ../stages（Archive 检查器的「学段」互链共用同一份） */
 const Y0 = YEAR_MIN, Y1 = YEAR_MAX;
 const EPOCH = STAGE_EPOCH;
+const STAGE_CHIP = ['学龄前', '小学', '初中', '高中', '大学', '家庭', '跨学段'];
+const KIND_CHIP: { id: '' | 'anchor' | 'background'; name: string }[] = [
+  { id: '', name: '全部事件' },
+  { id: 'anchor', name: '人生锚点' },
+  { id: 'background', name: '时代底板' },
+];
+const compactRiver = (q: RiverQuery): RiverQuery | undefined => {
+  const p: RiverQuery = {};
+  if (q.stage) p.stage = q.stage;
+  if (q.kind) p.kind = q.kind;
+  if (q.y != null) p.y = q.y;
+  return (p.stage || p.kind || p.y != null) ? p : undefined;
+};
 const STAGE_COLOR: Record<string, string> = {
   '小学': 'var(--vol1)', '初中': 'var(--vol2)', '高中': 'var(--vol3)',
   '大学': 'var(--vol4)', '跨学段': 'var(--vol5)', '家庭': 'var(--bronze)',
@@ -28,19 +42,6 @@ const epochColor = (y: number) => {
   if (STAGE_COLOR[s]) return STAGE_COLOR[s];
   return s === '学龄前' ? 'color-mix(in srgb, var(--bronze) 45%, transparent)' : 'transparent';
 };
-
-/** 家族白名单 + 通用称谓；其余人名从展示文本隐去（库内事实零改动） */
-const KIN_RE = /(母亲|父亲|父母|妈妈|爸爸|家人|全家|姑母|姑父|舅舅|外公|外婆|祖父|祖母|爷爷|奶奶|表兄|表姐|表弟|堂|姨)/;
-function sanitizeTitle(title: string, nonFamily: string[]): string {
-  let t = title;
-  for (const name of nonFamily) if (name.length >= 2 && !KIN_RE.test(name)) t = t.split(name).join('');
-  return t
-    .replace(/([、,，])\s*(?=[、,，）])/g, '')
-    .replace(/[（(]\s*[）)]/g, '')
-    .replace(/[、,，]\s*$/g, '')
-    .replace(/([、,，])\s*（/g, '（')
-    .trim();
-}
 
 function wavePath(width: number, amp: number, phase: number, baseline: number): string {
   const pts: string[] = [];
@@ -52,14 +53,15 @@ function wavePath(width: number, amp: number, phase: number, baseline: number): 
   return `M${pts.join('L')}`;
 }
 
-export function River({ onOpenDoc, focus, onFocusDone }: {
+export function River({ onOpenDoc, focus, onFocusDone, query, onQuery }: {
   onOpenDoc: (path: string) => void;
   focus?: { year: number; eventId?: number } | null;
   onFocusDone?: () => void;
+  query?: RiverQuery;
+  onQuery?: (q: RiverQuery | undefined) => void;
 }) {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [years, setYears] = useState<{ year: number; docs: number }[]>([]);
-  const [nonFamily, setNonFamily] = useState<string[]>([]);
   const [cruising, setCruising] = useState(false);
   /* v8 · 3.7 纵向列表替代视图（体验规格 §九个空间：时间之河「纵向列表替代视图」）。
      窄屏默认走列表——横向长河在 390px 下虽有拖拽，但信息密度与可达性都差。 */
@@ -171,9 +173,6 @@ export function River({ onOpenDoc, focus, onFocusDone }: {
     const load = () => {
       api.timeline(1990, 2032).then(setEvents).catch(e => notify(apiErrorMessage(e), 'error'));
       api.yearDensity().then(setYears).catch(e => notify(apiErrorMessage(e), 'error'));
-      api.entities(400).then((es: Entity[]) =>
-        setNonFamily(es.filter(e => e.relation_group !== '家族亲属').map(e => e.display_name))
-      ).catch(e => notify(apiErrorMessage(e), 'error'));
     };
     load();
     window.addEventListener('mneme:unlocked', load);
@@ -190,7 +189,7 @@ export function River({ onOpenDoc, focus, onFocusDone }: {
       opacity: [0, 1], translateY: [24, 0], scale: [0.97, 1],
       delay: stagger(30, { start: 300 }), duration: 620, ease: 'outExpo',
     });
-  }, [events.length, nonFamily.length]);
+  }, [events.length]);
 
   useEffect(() => () => cancelAnimationFrame(phy.current.raf), []);
 
@@ -202,19 +201,30 @@ export function River({ onOpenDoc, focus, onFocusDone }: {
   const docsOf = (y: number) => years.find(v => v.year === y)?.docs ?? 0;
   const maxDocs = useMemo(() => Math.max(1, ...years.map(y => y.docs)), [years]);
 
+  const visible = useMemo(() => {
+    return events.filter(ev => {
+      if (query?.stage && ev.stage !== query.stage) return false;
+      if (query?.kind && ev.kind !== query.kind) return false;
+      return true;
+    });
+  }, [events, query?.stage, query?.kind]);
+
   const byYear = useMemo(() => {
     const m = new Map<number, TimelineEvent[]>();
-    for (const ev of events) {
+    for (const ev of visible) {
       const list = m.get(ev.year) || [];
       list.push(ev);
       m.set(ev.year, list);
     }
     for (const [, list] of m) list.sort((a, b) => (a.month ?? 13) - (b.month ?? 13));
     return m;
-  }, [events]);
+  }, [visible]);
 
-  const sanitized = (ev: TimelineEvent) =>
-    nonFamily.length ? sanitizeTitle(ev.title, nonFamily) : ev.title;
+  const jumpYears = useMemo(() => [...byYear.keys()].sort((a, b) => a - b), [byYear]);
+  const presentStages = useMemo(() => {
+    const have = new Set(events.map(e => e.stage).filter(Boolean));
+    return STAGE_CHIP.filter(s => have.has(s));
+  }, [events]);
 
   /* 指针：按下打断巡航/滑行；300ms 内两次按下 = 双击起航 */
   const onDown = (e: React.PointerEvent) => {
@@ -257,36 +267,54 @@ export function River({ onOpenDoc, focus, onFocusDone }: {
     if (e.key === ' ') { e.preventDefault(); p.mode = cruising ? 'idle' : 'cruise'; p.v = 0; setCruising(!cruising); p.kick(); }
   };
 
-  /* ⌘K 时间线命中 / 检查器「同时间事件」→ 定位（两种视图各走各的定位方式） */
-  useEffect(() => {
-    if (!focus || events.length === 0) return;
+  const seekYear = (year: number, eventId?: number) => {
     if (listView) {
-      const sel = focus.eventId != null ? `.rv-litem[data-ev="${focus.eventId}"]` : `.rv-lrow[data-year="${focus.year}"]`;
+      const sel = eventId != null ? `.rv-litem[data-ev="${eventId}"]` : `.rv-lrow[data-year="${year}"]`;
       const el = listRef.current?.querySelector(sel) as HTMLElement | null;
       el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      el?.classList.add('pulse');
-      const t = setTimeout(() => { el?.classList.remove('pulse'); onFocusDone?.(); }, 2400);
-      return () => clearTimeout(t);
+      if (el) {
+        el.classList.add('pulse');
+        window.setTimeout(() => el.classList.remove('pulse'), 2400);
+      }
+      return;
     }
     const p = phy.current;
     p.mode = 'idle'; p.v = 0; setCruising(false);
-    p.target = clampOffset((focus.year - Y0) * COL_W - p.viewW / 2 + COL_W / 2);
+    p.target = clampOffset((year - Y0) * COL_W - p.viewW / 2 + COL_W / 2);
     p.kick();
-    if (focus.eventId != null) {
-      stripRef.current?.querySelector(`.rv-card[data-ev="${focus.eventId}"]`)?.classList.add('pulse');
-      const t = setTimeout(() => {
-        stripRef.current?.querySelector('.rv-card.pulse')?.classList.remove('pulse');
-        onFocusDone?.();
-      }, 2400);
-      return () => clearTimeout(t);
+    if (eventId != null) {
+      stripRef.current?.querySelector(`.rv-card[data-ev="${eventId}"]`)?.classList.add('pulse');
+      window.setTimeout(() => stripRef.current?.querySelector('.rv-card.pulse')?.classList.remove('pulse'), 2400);
     }
-    onFocusDone?.();
+  };
+
+  const setQuery = (patch: { stage?: string; kind?: 'anchor' | 'background' | ''; y?: number }) => {
+    onQuery?.(compactRiver({
+      stage: patch.stage !== undefined ? (patch.stage || undefined) : query?.stage,
+      kind: patch.kind !== undefined ? (patch.kind || undefined) : query?.kind,
+      y: patch.y !== undefined ? patch.y : query?.y,
+    }));
+  };
+
+  /* ⌘K 时间线命中 / 检查器「同时间事件」→ 定位 */
+  useEffect(() => {
+    if (!focus || events.length === 0) return;
+    seekYear(focus.year, focus.eventId);
+    const t = window.setTimeout(() => onFocusDone?.(), 2400);
+    return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, events.length, listView]);
 
-  /* 入场定位：诞生年（2007）带到视口左 1/4 */
+  /* URL 年份：无外部聚焦时跳到 ?y= */
   useEffect(() => {
-    if (!years.length) return;
+    if (focus || query?.y == null || events.length === 0) return;
+    seekYear(query.y);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query?.y, events.length, listView]);
+
+  /* 入场定位：诞生年（2007）带到视口左 1/4；已有 ?y= 则让给年份跳转 */
+  useEffect(() => {
+    if (!years.length || query?.y != null) return;
     const p = phy.current;
     if (p.offset !== 0 || p.target !== 0) return;
     p.target = Math.max(0, (2007 - Y0) * COL_W - p.viewW * 0.25);
@@ -301,27 +329,51 @@ export function River({ onOpenDoc, focus, onFocusDone }: {
   return (
     <div className={`rv ${listView ? 'list' : ''}`} ref={rootRef} tabIndex={0}
       onKeyDown={listView ? undefined : onKey}
-      onPointerDown={listView ? undefined : onDown}
-      onPointerUp={listView ? undefined : onUp}
-      onPointerLeave={listView ? undefined : onUp}
-      onWheel={listView ? undefined : onWheel}
     >
       <header className="rv-head">
         <p className="greek rv-kicker">ΧΡΟΝΟΣ · Σ2</p>
-        <h2>时间之河</h2>
+        <h1>时间之河</h1>
         <p className="rv-hint">
           {listView ? (
-            <>按年纵向陈列，点击可直达原文 · 卡片仅陈列家族口径</>
+            <>按年纵向陈列，点击可直达原文 · 标题以库内原文为准</>
           ) : (
             <>
               拖拽（松手滑行）· 滚轮 · 方向键 · <b>双击河面，时间之船缓缓起航</b>
-              {cruising ? <em className="rv-sailing"> · 缓速巡航中（单击停靠）</em> : null} · 卡片仅陈列家族口径
+              {cruising ? <em className="rv-sailing"> · 缓速巡航中（单击停靠）</em> : null} · 标题以库内原文为准
             </>
           )}
         </p>
         <button className="rv-view" onClick={() => setListView(v => !v)}>
           {listView ? '横向长河' : '纵向列表'}
         </button>
+        <div className="rv-filters" role="toolbar" aria-label="时间之河筛选">
+          <div className="rv-chips">
+            <button type="button" className={`rv-chip ${!query?.stage ? 'on' : ''}`} onClick={() => setQuery({ stage: '' })}>全部学段</button>
+            {presentStages.map(s => (
+              <button key={s} type="button" className={`rv-chip ${query?.stage === s ? 'on' : ''}`}
+                onClick={() => {
+                  const ep = EPOCH.find(e => e.stage === s);
+                  setQuery({ stage: s, y: ep ? ep.from : query?.y });
+                  if (ep) seekYear(ep.from);
+                }}>{s}</button>
+            ))}
+          </div>
+          <div className="rv-chips">
+            {KIND_CHIP.map(k => (
+              <button key={k.id || 'all'} type="button" className={`rv-chip ${ (query?.kind || '') === k.id ? 'on' : ''}`}
+                onClick={() => setQuery({ kind: k.id })}>{k.name}</button>
+            ))}
+          </div>
+          {jumpYears.length > 0 && (
+            <div className="rv-jump" role="navigation" aria-label="跳到年份">
+              {jumpYears.map(y => (
+                <button key={y} type="button" className={`rv-y ${query?.y === y ? 'on' : ''}`}
+                  onClick={() => { setQuery({ y }); seekYear(y); }}>{y}</button>
+              ))}
+            </div>
+          )}
+          <p className="rv-count">{visible.length} / {events.length} 条公开事件 · 筛选只改陈列，不改库</p>
+        </div>
       </header>
 
       {listView ? (
@@ -343,10 +395,10 @@ export function River({ onOpenDoc, focus, onFocusDone }: {
                       <button key={ev.id} data-ev={ev.id}
                         className={`rv-litem ${ev.kind === 'anchor' ? 'anchor' : 'bg'}`}
                         style={{ ['--sc' as string]: STAGE_COLOR[ev.stage] || 'var(--bronze)' }}
-                        title={ev.kind === 'anchor' ? sanitized(ev) : undefined}
+                        title={ev.kind === 'anchor' ? ev.title : undefined}
                         onClick={() => { if (refPath) onOpenDoc(refPath); }}>
                         <span className="rv-lwhen">{ev.year}{ev.month ? `.${String(ev.month).padStart(2, '0')}` : ''}</span>
-                        <span className="rv-ltitle">{sanitized(ev)}</span>
+                        <span className="rv-ltitle">{ev.title}</span>
                         <span className="rv-lstage">{ev.stage}{refPath ? ' · 原文 →' : ''}</span>
                       </button>
                     );
@@ -355,10 +407,17 @@ export function River({ onOpenDoc, focus, onFocusDone }: {
               </section>
             );
           })}
-          {events.length === 0 && <p className="rv-lempty">暂无时间线事件。</p>}
+          {visible.length === 0 && (
+            <p className="rv-lempty">{events.length ? '当前筛选下没有事件。' : '暂无时间线事件。'}</p>
+          )}
         </div>
       ) : (
-      <div className="rv-flow">
+      <div className="rv-flow"
+        onPointerDown={onDown}
+        onPointerUp={onUp}
+        onPointerLeave={onUp}
+        onWheel={onWheel}
+      >
         <div className="rv-strip" ref={stripRef} style={{ width: stripW }}>
           <svg className="rv-water-svg" width={stripW + 384} height={320} viewBox={`0 0 ${stripW + 384} 320`} aria-hidden>
             <defs>
@@ -407,21 +466,21 @@ export function River({ onOpenDoc, focus, onFocusDone }: {
                           data-ev={ev.id}
                           className={`rv-card ${anchor ? 'anchor' : 'bg'}`}
                           style={{ ['--sc' as string]: STAGE_COLOR[ev.stage] || 'var(--bronze)', ['--ph' as string]: `${phase}px`, ['--side' as string]: `${side}px` }}
-                          title={anchor ? sanitized(ev) : undefined}
+                          title={anchor ? ev.title : undefined}
                           onPointerDown={e => e.stopPropagation()} // 卡片内按下不触发拖拽，点击直达原文
                           onClick={e => { if (refPath) { e.stopPropagation(); onOpenDoc(refPath); } }}
                         >
                           <span className="rv-pin" />
                           {anchor ? (
-                            <span className="rv-body glass">
+                            <span className="rv-body surface">
                               <span className="rv-when">{ev.year}{ev.month ? `·${String(ev.month).padStart(2, '0')}` : ''}</span>
-                              <b className="rv-title">{sanitized(ev)}</b>
+                              <b className="rv-title">{ev.title}</b>
                               <span className="rv-stage">{ev.stage}{refPath ? ' · 原文 →' : ''}</span>
                             </span>
                           ) : (
                             <span className="rv-ribbon">
                               <span className="rv-when">{ev.year}</span>
-                              <span className="rv-title">{sanitized(ev)}</span>
+                              <span className="rv-title">{ev.title}</span>
                             </span>
                           )}
                         </button>

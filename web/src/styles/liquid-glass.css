@@ -46,6 +46,8 @@
 /* 大面板扫光加重一档：顶栏 / ⌘K 弹窗 / 星图抽屉 / 章节材料链面板
    （阅读正文 .ar-body 已改稳定实底 --surface-read，不在此列——正文不折射） */
 .nav.glass::before,
+.rail::before,
+.topbar::before,
 .ck.glass::before,
 .gp-sheet.glass::before,
 .cp.glass::before {

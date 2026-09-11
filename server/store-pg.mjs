@@ -78,6 +78,17 @@ export const overview = () => all(
   return { ...c, latest, evidence, volumes, audit, years, domains };
 });
 
+export const evidenceQueue = async ({ unlocked = false } = {}) => {
+  const guard = unlocked ? '' : docGuardSql('d');
+  const rows = await all(`
+    SELECT es.id, es.kind, es.snippet, d.path, d.title, d.volume, d.domain, d.stage
+    FROM evidence_spans es JOIN documents d ON d.id = es.doc_id
+    WHERE es.kind IN ('pending','pendingCollect','conflict') ${guard}
+    ORDER BY CASE es.kind WHEN 'conflict' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, d.mtime DESC
+    LIMIT 80`);
+  return unlocked ? rows : rows.filter(r => !isSecretText(r.snippet) && !isSecretText(r.title));
+};
+
 /* ---------- 十域 ---------- */
 export const domains = () => all(`SELECT domain, COUNT(*) n,
   SUM(CASE WHEN stage='高中' THEN 1 ELSE 0 END) hs,
@@ -227,7 +238,9 @@ export const doc = async (rawPath, opts = {}) => {
     JOIN entity_mentions m ON m.entity_id=e.id WHERE m.doc_id=?${pG} ORDER BY e.mention_count DESC LIMIT 30`,
     d.id, ...(unlocked ? [] : ENTITY_GUARD_PARAMS));
   const evidence = await all('SELECT kind, COUNT(*) n FROM evidence_spans WHERE doc_id=? GROUP BY kind', d.id);
-  const evSnippets = await all('SELECT kind, snippet FROM evidence_spans WHERE doc_id=? LIMIT 24', d.id);
+  const evSnippets = await all(`SELECT id, kind, snippet FROM evidence_spans WHERE doc_id=?
+    ORDER BY CASE kind WHEN 'conflict' THEN 0 WHEN 'pending' THEN 1 WHEN 'pendingCollect' THEN 2 ELSE 3 END, id
+    LIMIT 80`, d.id);
   /* v8 · 3.3 五向互链：同时间事件 + 相关意象（与 store.mjs 同口径，同样受未解锁守卫约束） */
   const tlG2 = unlocked ? '' : timelineGuardSql('t');
   const timeline = await all(`SELECT t.id, t.year, t.month, t.title, t.kind FROM timeline_events t

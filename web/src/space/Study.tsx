@@ -112,7 +112,7 @@ export function Study({ onOpenDoc, onOpenPerson, onOpenImagery, onOpenChapter, f
     <div className="study" ref={rootRef}>
       <header className="study-head">
         <p className="greek study-kicker">ΒΙΒΛΙΑ · Σ4</p>
-        <h2>五卷书房</h2>
+        <h1>五卷书房</h1>
         <p className="study-sub">六扇门，六种线的走法——这是全书的骨架房。</p>
       </header>
 
@@ -120,7 +120,7 @@ export function Study({ onOpenDoc, onOpenPerson, onOpenImagery, onOpenChapter, f
         {vols.map(v => (
           <button
             key={v.code}
-            className={`study-door glass ${cur?.code === v.code ? 'on' : ''}`}
+            className={`study-door surface ${cur?.code === v.code ? 'on' : ''}`}
             style={{ ['--vc' as string]: v.color_token }}
             data-secret={v.code === 'V2' || v.code === 'V3' ? '1' : undefined}
             onClick={() => openVol(v.code)}
@@ -135,10 +135,10 @@ export function Study({ onOpenDoc, onOpenPerson, onOpenImagery, onOpenChapter, f
       </div>
 
       {cur && (
-        <section className="study-detail glass" style={{ ['--vc' as string]: cur.color_token }}>
+        <section className="study-detail surface" style={{ ['--vc' as string]: cur.color_token }}>
           <div className="study-detail-head">
             <div>
-              <h3>{cur.name}</h3>
+              <h2>{cur.name}</h2>
               <p>{cur.years} · {cur.line_metaphor} · {cur.mood} · 目标 {cur.word_target}</p>
               <p className="study-progress-line">
                 <span className="study-progress" aria-hidden>
@@ -166,7 +166,7 @@ export function Study({ onOpenDoc, onOpenPerson, onOpenImagery, onOpenChapter, f
             <div className="study-links">
               {cur.topPersons.length > 0 && (
                 <div className="study-linkrow">
-                  <h4>本卷人物</h4>
+                  <h3>本卷人物</h3>
                   <div className="study-chips">
                     {cur.topPersons.map(p => (
                       <button key={p.id} onClick={() => onOpenPerson(p.id)} title={`${p.relation_group} · 被提及 ${p.hits} 次`}>
@@ -178,7 +178,7 @@ export function Study({ onOpenDoc, onOpenPerson, onOpenImagery, onOpenChapter, f
               )}
               {cur.topImagery.length > 0 && (
                 <div className="study-linkrow">
-                  <h4>本卷意象</h4>
+                  <h3>本卷意象</h3>
                   <div className="study-chips">
                     {cur.topImagery.map(im => (
                       <button key={im.id} onClick={() => onOpenImagery(im.id)}>

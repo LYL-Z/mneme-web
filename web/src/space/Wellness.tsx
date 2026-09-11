@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { getRecentDocs, getLastChapter, timeAgo } from '../history';
 import { bgmGet, bgmSet, bgmSub } from '../bgm';
+import { useFocusTrap } from '../focusTrap';
 
 /**
  * v4 · C5 键盘导航层 + C6 阅读足迹 + E3 阅读时长感知 + E4 站内偏好开关（含 E2 高对比）。
  * 一个组件承载三件事，入口：
  * - 齿轮按钮（导航右侧）→ 偏好面板：动效/玻璃光/高对比开关 + 本周足迹统计；
- * - 「?」→ 快捷键表；「g+字母」跳空间；「j/k」滚动。
+ * - j/k 滚动。快捷键总表由顶栏「?」打开，避免与 App 的 g 跳转抢键。
  * 全部偏好落 localStorage（mneme-prefs），documentElement class 驱动 CSS/JS 行为。
  */
 export interface MnemePrefs { motion: boolean; glass: boolean; contrast: boolean }
@@ -51,50 +52,40 @@ const weekFootprint = () => {
   return { docs: docs.length, opens: docs.length + chThis, last: docs[0]?.t ?? ch?.t ?? null };
 };
 
-const SPACE_KEYS: [string, string, string][] = [
-  ['s', '记忆恒星', 'stars'], ['a', '原文档案馆', 'archive'], ['g', '人物星图', 'graph'],
-  ['r', '时间之河', 'river'], ['t', '主题域', 'themes'], ['v', '他者之声', 'voices'],
-  ['m', '意象博物馆', 'museum'], ['b', '五卷书房', 'study'], ['l', '证据灯塔', 'lighthouse'],
-];
-
-export function Wellness({ onGoSpace }: { onGoSpace: (key: string) => void }) {
+export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) => void }) {
   const [prefs, setPrefs] = useState<MnemePrefs>(readPrefs);
-  const [panel, setPanel] = useState<'none' | 'prefs' | 'keys'>('none');
+  const [panel, setPanel] = useState<'none' | 'prefs'>('none');
   const [rest, setRest] = useState(false);
   const [foot, setFoot] = useState(() => weekFootprint());
   const [bgm, setBgm] = useState(bgmGet);
+  const prefRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(prefRef, panel === 'prefs', () => setPanel('none'));
   useEffect(() => bgmSub(setBgm), []);
 
   useEffect(() => { applyPrefs(prefs); }, [prefs]);
+  useEffect(() => {
+    const openPrefs = () => setPanel('prefs');
+    window.addEventListener('mneme:prefs', openPrefs);
+    return () => window.removeEventListener('mneme:prefs', openPrefs);
+  }, []);
   useEffect(() => { const t = window.setInterval(() => setFoot(weekFootprint()), 60_000); return () => clearInterval(t); }, []);
   useReadingTimer(() => setRest(true));
 
-  /* C5 · 全局键盘：? 帮助 / g+字母 跳空间 / j k 滚动 */
+  /* C5 · j/k 滚动（g / ? 由 App 统一处理） */
   useEffect(() => {
-    let gPending = false; let gTimer = 0;
     const host = () => document.querySelector('.space-host') as HTMLElement | null;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
       if (e.isComposing || t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      if (gPending) {
-        const hit = SPACE_KEYS.find(([k]) => k === e.key.toLowerCase());
-        gPending = false; clearTimeout(gTimer);
-        if (hit) { e.preventDefault(); onGoSpace(hit[2]); }
-        return;
-      }
-      if (e.key === '?') { e.preventDefault(); setPanel(v => (v === 'keys' ? 'none' : 'keys')); }
-      else if (e.key.toLowerCase() === 'g' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        gPending = true; clearTimeout(gTimer); gTimer = window.setTimeout(() => { gPending = false; }, 700);
-      }
-      else if (e.key === 'j' || e.key === 'k') {
+      if (e.key === 'j' || e.key === 'k') {
         const el = host(); if (!el) return;
         e.preventDefault();
         el.scrollBy({ top: e.key === 'j' ? 260 : -260, behavior: 'smooth' });
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => { window.removeEventListener('keydown', onKey); clearTimeout(gTimer); };
-  }, [onGoSpace]);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const set = (k: keyof MnemePrefs) => {
     const next = { ...prefs, [k]: !prefs[k] };
@@ -108,17 +99,17 @@ export function Wellness({ onGoSpace }: { onGoSpace: (key: string) => void }) {
         className="pref-hint glass"
         onClick={() => setPanel(v => (v === 'prefs' ? 'none' : 'prefs'))}
         aria-label="偏好与足迹"
-        title="偏好 · 足迹（? 查看快捷键）"
+        title="偏好 · 足迹"
       >
         <span className="greek">ΠΡΟΘΕΣΙΣ</span> 偏好
       </button>
 
       {panel === 'prefs' && (
         <div className="pref-mask" onMouseDown={() => setPanel('none')}>
-          <div className="pref glass" onMouseDown={e => e.stopPropagation()}>
+          <div ref={prefRef} className="pref glass" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="pref-title">
             <header className="pref-head">
               <p className="greek pref-kicker">ΠΡΟΘΕΣΙΣ · 偏好</p>
-              <h3>阅读偏好</h3>
+              <h1 id="pref-title">阅读偏好</h1>
               <button className="gp-sheet-x" onClick={() => setPanel('none')} aria-label="关闭">×</button>
             </header>
             <div className="pref-rows">
@@ -145,27 +136,7 @@ export function Wellness({ onGoSpace }: { onGoSpace: (key: string) => void }) {
                 本周打开 <b>{foot.docs}</b> 篇材料 · 共 <b>{foot.opens}</b> 次
                 {foot.last ? ` · 最近 ${timeAgo(foot.last)}` : ' · 本周尚未开始阅读'}
               </p>
-              <p className="pref-footline dim">按 <kbd>?</kbd> 查看快捷键 · <kbd>g</kbd>+字母 跳空间 · <kbd>j</kbd>/<kbd>k</kbd> 滚动</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {panel === 'keys' && (
-        <div className="pref-mask" onMouseDown={() => setPanel('none')}>
-          <div className="pref glass" onMouseDown={e => e.stopPropagation()}>
-            <header className="pref-head">
-              <p className="greek pref-kicker">ΚΛΕΙΣ · 快捷键</p>
-              <h3>键盘导航</h3>
-              <button className="gp-sheet-x" onClick={() => setPanel('none')} aria-label="关闭">×</button>
-            </header>
-            <div className="keys-rows">
-              <div className="keys-row"><kbd>⌘K</kbd><span>检索全库</span></div>
-              <div className="keys-row"><kbd>g</kbd><span>然后按字母跳空间：{SPACE_KEYS.map(([k, n]) => <em key={k}><kbd>{k}</kbd>{n}</em>)}</span></div>
-              <div className="keys-row"><kbd>j</kbd><span>向下滚动</span></div>
-              <div className="keys-row"><kbd>k</kbd><span>向上滚动</span></div>
-              <div className="keys-row"><kbd>?</kbd><span>本表</span></div>
-              <div className="keys-row"><kbd>Esc</kbd><span>关闭面板</span></div>
+              <p className="pref-footline dim">顶栏 <kbd>?</kbd> 查看快捷键 · <kbd>g</kbd>+字母 跳空间 · <kbd>j</kbd>/<kbd>k</kbd> 滚动</p>
             </div>
           </div>
         </div>

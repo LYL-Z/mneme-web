@@ -118,6 +118,7 @@ app.use('*', async (c, next) => {
   c.header('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=()');
   /* CSP 默认强制；MNEME_CSP_REPORT_ONLY=1 可一键回退为观察模式（应急回滚用） */
   c.header(process.env.MNEME_CSP_REPORT_ONLY === '1' ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy', CSP);
+  if (c.req.path === '/sw.js' || c.req.path === '/offline.html') c.header('Cache-Control', 'no-cache');
   if (isHttps(c)) c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 });
 
@@ -192,13 +193,14 @@ app.get('/gate.js', (c) => c.body(GATE_JS, 200, { 'Content-Type': 'application/j
 
 app.use('*', async (c, next) => {
   const url = new URL(c.req.url);
-  const open = ['/api/login', '/api/health', '/gate.js'];
+  const open = ['/api/login', '/api/health', '/gate.js', '/sw.js', '/offline.html', '/manifest.webmanifest'];
   if (open.some(p => url.pathname === p)) return next();
   if (getCookie(c, 'mneme_k') === KEY) return next();
   /* Bearer 令牌（自动化调用）：与部署手册示例一致 */
   const bearer = (c.req.header('authorization') || '').replace(/^Bearer\s+/i, '').trim();
   if (bearer && (bearer === TOKEN || bearer === ADMIN_TOKEN)) return next();
   if (url.pathname.startsWith('/api/')) return c.json({ error: 'unauthorized' }, 401);
+  c.header('Cache-Control', 'no-store');
   return c.html(GATE_HTML);
 });
 
@@ -231,8 +233,12 @@ app.get('/api/domains', (c) => { cache(c, 300); return c.json(store.domains()); 
 app.get('/api/domains/:name/docs', (c) => {
   cache(c);
   return c.json(store.domainDocs(c.req.param('name'),
-    Math.min(+c.req.query('limit') || 60, 200), +c.req.query('offset') || 0,
+    Math.min(+c.req.query('limit') || 60, 500), +c.req.query('offset') || 0,
     { unlocked: isUnlocked(c) }));
+});
+app.get('/api/queue', async (c) => {
+  cache(c);
+  return c.json(await store.evidenceQueue({ unlocked: isUnlocked(c) }));
 });
 app.get('/api/timeline', (c) => {
   cache(c);
@@ -343,8 +349,20 @@ app.use('/assets/*', async (c, next) => {
   if (c.res.status === 200) c.header('Cache-Control', 'public, max-age=31536000, immutable');
 });
 if (fs.existsSync(WEB_DIST)) {
+  const INDEX_HTML = () => fs.readFileSync(path.join(WEB_DIST, 'index.html'), 'utf8');
+  const isSpaPath = (p) => p === '/' || p === '/foreshadow'
+    || /^\/(space|doc|person|imagery|volume|chapter)(\/|$)/.test(p);
+  /* History API 深链必须先回 index.html，不能让 serveStatic 去找 /space/stars 这种假文件 */
+  app.get('*', async (c, next) => {
+    if (!isSpaPath(c.req.path)) return next();
+    c.header('Cache-Control', 'no-store');
+    return c.html(INDEX_HTML());
+  });
   app.use('*', serveStatic({ root: path.relative(process.cwd(), WEB_DIST) || '.', rewriteRequestPath: (p) => p }));
-  app.get('*', serveStatic({ path: path.join(WEB_DIST, 'index.html') }));
+  app.get('*', (c) => {
+    c.header('Cache-Control', 'no-store');
+    return c.html(INDEX_HTML());
+  });
 } else {
   app.get('/', (c) => c.text('ΜΝΗΜΗ · API 就绪（前端 dist 未构建，接口见 /api/overview）'));
 }

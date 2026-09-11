@@ -54,7 +54,7 @@ deploy/server/privacy.local.json
 
 # 构建产物与临时探测（含历史泄漏样本）
 tmp/
-site/
+# site/ 是 workbuddy 发布根：必须上传，不能排除（构建产物副本，仅含前端静态资源）
 deploy/web-dist/
 *.log
 
