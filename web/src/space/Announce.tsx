@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { animate, stagger } from 'animejs';
 import { annihilate, prepareSnapshot } from '../annihilate';
-import { skipHeavyFx } from '../immersive';
+import { canAnnihilate } from '../immersive';
 
 /**
  * v4 · 致谢公告（口令通过后、进首页前弹一次，sessionStorage 记忆）。
@@ -46,13 +46,13 @@ export function Announce({ onClose }: { onClose: () => void }) {
     closing.current = true;
     try { sessionStorage.setItem('mneme-anno', '1'); } catch { /* 静默 */ }
     const card = rootRef.current?.querySelector('.anno-card') as HTMLElement | null;
-    if (card && !skipHeavyFx()) annihilate(card, onClose);
+    if (card && canAnnihilate()) annihilate(card, onClose);
     else onClose();
   };
 
   return (
     <div className="anno-mask" ref={rootRef} onMouseDown={close}>
-      <div className="anno-card glass" onMouseDown={e => e.stopPropagation()}>
+      <div className="anno-card glass chrome" onMouseDown={e => e.stopPropagation()}>
         <div className="anno-glow" aria-hidden />
         <p className="greek anno-kicker">ΕΥΧΑΡΙΣΤΩ · 致谢</p>
         <h1 className="anno-title">

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { animate } from 'animejs';
 import { api, swrInvalidate } from '../api';
 import { annihilate, prepareSnapshot } from '../annihilate';
-import { skipHeavyFx } from '../immersive';
+import { canAnnihilate } from '../immersive';
 import { useFocusTrap } from '../focusTrap';
 import { clearDailySkyCache } from './DailySky';
 
@@ -50,7 +50,7 @@ export function SecretGate() {
     if (closing.current) return;
     closing.current = true;
     const card = cardRef.current;
-    if (card && !skipHeavyFx()) annihilate(card, () => { closing.current = false; setOpen(false); });
+    if (card && canAnnihilate()) annihilate(card, () => { closing.current = false; setOpen(false); });
     else { closing.current = false; setOpen(false); }
   };
   useFocusTrap(cardRef, open, () => doClose());
@@ -89,7 +89,7 @@ export function SecretGate() {
 
   return (
     <div className="sg-mask" onMouseDown={() => doClose()}>
-      <div className="sg glass" ref={cardRef} onMouseDown={e => e.stopPropagation()} data-shake={shake} role="dialog" aria-modal="true" aria-labelledby="sg-title">
+      <div className="sg glass chrome" ref={cardRef} onMouseDown={e => e.stopPropagation()} data-shake={shake} role="dialog" aria-modal="true" aria-labelledby="sg-title">
         <p className="sg-greek greek">ΑΡΧΕΙΟΝ ΑΠΟΡΡΗΤΟΝ</p>
         <h1 id="sg-title">此为绝密档案</h1>
         <p className="sg-sub">需输入管理员密码方可开启。密码持有者：库主本人。</p>

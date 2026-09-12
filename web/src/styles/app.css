@@ -57,17 +57,21 @@
 .rail-tabs { display: none; }
 
 .topbar {
+  --nav-sc: 0;
   grid-column: 2;
   position: relative; isolation: isolate;
   display: flex; align-items: center; gap: 10px;
   padding: 0 16px 0 18px;
-  border-bottom: 1px solid var(--glass-border);
-  background: color-mix(in srgb, var(--paper) 78%, transparent);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border-bottom: 1px solid color-mix(in srgb, var(--glass-border) calc(var(--nav-sc, 0) * 100%), transparent);
+  background: color-mix(in srgb, var(--paper) calc(22% + 56% * var(--nav-sc, 0)), transparent);
+  backdrop-filter: blur(calc(4px + 24px * var(--nav-sc, 0))) saturate(calc(130% + 50% * var(--nav-sc, 0)));
+  -webkit-backdrop-filter: blur(calc(4px + 24px * var(--nav-sc, 0))) saturate(calc(130% + 50% * var(--nav-sc, 0)));
+  color: var(--ink);
+  text-shadow: 0 0 calc((1 - var(--nav-sc, 0)) * 10px) color-mix(in srgb, var(--paper) 70%, transparent);
   z-index: 39;
   font-family: var(--sans);
 }
+.topbar > * { position: relative; z-index: 1; }
 .silk {
   view-transition-name: silk;
   flex: 1; min-width: 0;
@@ -246,7 +250,12 @@ html.page-hidden .glass::after {
   transition: background 480ms ease, backdrop-filter 480ms ease, -webkit-backdrop-filter 480ms ease;
 }
 .sg-mask.annihilating,
-.anno-mask.annihilating {
+.anno-mask.annihilating,
+.ck-mask.annihilating,
+.pref-mask.annihilating,
+.toc-mask.annihilating,
+.more-mask.annihilating,
+.cp-mask.annihilating {
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -2128,6 +2137,25 @@ body { overscroll-behavior: none; }
 }
 .pref-row small { display: block; color: var(--ink-faint); font-size: var(--fs-xs); margin-top: 2px; }
 .pref-row input { width: 18px; height: 18px; accent-color: var(--bronze); cursor: pointer; }
+.pref-imm {
+  flex-direction: column; align-items: stretch; cursor: default; gap: 10px;
+}
+.pref-imm legend { padding: 0; }
+.pref-seg {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px;
+}
+.pref-seg label {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 36px; border-radius: 999px;
+  border: 1px solid var(--glass-border); background: var(--surface-read);
+  font-size: var(--fs-s); cursor: pointer;
+}
+.pref-seg input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.pref-seg label:has(input:checked) {
+  border-color: var(--bronze);
+  background: color-mix(in srgb, var(--bronze) 16%, var(--paper));
+  color: var(--ink);
+}
 .pref-foot { border-top: 1px solid var(--glass-border); padding-top: 12px; }
 .pref-footline { margin: 6px 0 0; font-size: var(--fs-s); color: var(--ink-soft); }
 .pref-footline b { color: var(--ink); }
@@ -2214,13 +2242,22 @@ body { overscroll-behavior: none; }
   .bgm-eq i { animation: none; }
 }
 
-/* ============ v4 · 沉浸光感体系（对标华为 ImmersiveMaterial · ADAPTIVE 档位） ============
-   六特性：通透材质(既有 glass) / 渐变模糊(--nav-sc 驱动) / 按压弹性(scale 属性弹簧)
-   / 按压点光源(.imm-ripple) / 材质流光(EXQUISITE 缓速流光) / 智能反色(系统级,不实现)
-   档位：documentElement[data-imm="exquisite|gentle|smooth"]（immersive.ts ADAPTIVE 探测） */
+/* ============ v4 · 沉浸光感体系（对标华为 ImmersiveMaterial · 四档） ============
+   六特性：通透 / 渐变模糊(--nav-sc) / 按压弹性 / 点光源 / 流光 / 智能反色(主题+纸晕)
+   档位：data-imm=exquisite|gentle|smooth；data-imm-pref=adaptive|… */
 
-/* —— 渐变模糊：工作台壳自身已有轻模糊，--nav-sc 仍由滚动写入，供后续微调 —— */
 html[data-imm="smooth"] .topbar { --nav-sc: 1; }
+html[data-imm="smooth"] .topbar {
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  text-shadow: none;
+}
+html.lg-displacement[data-imm="exquisite"] .topbar {
+  backdrop-filter: url('#mneme-glass') blur(calc(6px + 26px * var(--nav-sc, 0))) saturate(calc(140% + 50% * var(--nav-sc, 0)));
+  -webkit-backdrop-filter: url('#mneme-glass') blur(calc(6px + 26px * var(--nav-sc, 0))) saturate(calc(140% + 50% * var(--nav-sc, 0)));
+}
+html[data-theme="night"] .topbar { text-shadow: 0 0 calc((1 - var(--nav-sc, 0)) * 8px) rgba(20, 16, 10, 0.55); }
 
 /* —— 按压弹性反馈：独立 scale 属性弹簧（不与既有 transform 动画冲突） —— */
 button, .anno-logo, .wb-continue {
@@ -2242,25 +2279,35 @@ html[data-imm="smooth"] button:active { scale: none; }
 }
 html[data-imm="smooth"] .imm-ripple { display: none; }
 
-/* —— 材质流光：EXQUISITE 档玻璃面缓速斜向流光（GENTLE 保持静态扫光） —— */
-:where(html[data-imm="exquisite"]) :where(.glass) { position: relative; }   /* :where 零优先级：不覆盖 fixed 定位控件 */
-:where(html[data-imm="exquisite"]) :where(.glass > *) { position: relative; z-index: 1; }
-html[data-imm="exquisite"] .glass::after {
-  content: ''; position: absolute; top: 0; bottom: 0; left: -55%; width: 55%;
-  border-radius: inherit; pointer-events: none;
-  background: linear-gradient(105deg, transparent 0%, rgba(255,255,255,0.30) 45%, rgba(255,255,255,0.10) 55%, transparent 100%);
-  /* v5.1 性能×效果兼得：用 transform 跑合成层（GPU，不重绘、不混色），
-     且 0–58% 保持静止——平均每帧开销接近零；弱档与减弱动效偏好下关闭 */
+/* —— 材质流光：只扫系统铬，不抢普通 .glass 的跟随光 —— */
+:where(html[data-imm="exquisite"]) :where(.chrome.glass) { position: relative; }
+:where(html[data-imm="exquisite"]) :where(.chrome.glass > *) { position: relative; z-index: 1; }
+html[data-imm="exquisite"] .topbar.chrome::after,
+html[data-shell="phone"][data-imm="exquisite"] .rail.chrome::after {
+  content: '';
+  position: absolute; inset: 0; z-index: 0;
+  pointer-events: none;
+}
+html[data-imm="exquisite"] .topbar.chrome::after,
+html[data-shell="phone"][data-imm="exquisite"] .rail.chrome::after,
+html[data-imm="exquisite"] .chrome.glass::after {
+  opacity: 1;
+  background:
+    linear-gradient(105deg, transparent 0%, rgba(255,255,255,0.32) 46%, rgba(255,255,255,0.08) 56%, transparent 100%)
+      no-repeat,
+    radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), var(--glass-follow), transparent 70%);
+  background-size: 55% 100%, auto;
+  background-position: -55% 0, 0 0;
   animation: imm-sheen 10s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  transform: translate3d(0, 0, 0);
-  will-change: transform;
 }
 @keyframes imm-sheen {
-  0%, 58% { transform: translate3d(0, 0, 0); opacity: 0; }
-  62% { opacity: 1; }
-  92%, 100% { transform: translate3d(290%, 0, 0); opacity: 0; }
+  0%, 58% { background-position: -55% 0, 0 0; }
+  62% { background-position: -20% 0, 0 0; }
+  92%, 100% { background-position: 220% 0, 0 0; }
 }
-html[data-imm="smooth"] .glass::after, html[data-imm="gentle"] .glass::after, html.no-motion .glass::after { animation: none; opacity: 0.16; transform: none; }
+html[data-imm="smooth"] .chrome.glass::after,
+html[data-imm="gentle"] .chrome.glass::after,
+html.no-motion .chrome.glass::after { animation: none; }
 
 /* —— 粒子湮灭退场：弹窗卡片快速 blur+scale 消散（粒子 Canvas 接管视觉） —— */
 .imm-vanish {

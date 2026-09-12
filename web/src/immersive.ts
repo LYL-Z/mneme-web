@@ -1,58 +1,101 @@
 /**
- * v4 · 沉浸光感体系（对标华为 ImmersiveMaterial，Web 实现）
+ * 沉浸光感（对标华为 ImmersiveMaterial / Apple Liquid Glass 的 Web 近似）
  *
- * 六特性映射：
- *  - 通透材质：.glass backdrop-filter（既有）
- *  - 渐变模糊：导航栏随滚动从透明渐变为模糊（bindToScrollable → --nav-sc 驱动）
- *  - 按压弹性反馈：button:active 独立 scale 属性弹簧（不与既有 transform 冲突）
- *  - 按压点光源：pointerdown 在玻璃组件触点生成一次性光晕（档位启用）
- *  - 材质流光：EXQUISITE 档玻璃面缓速斜向流光；GENTLE 静态扫光（既有）
- *  - 智能反色：华为系统级采样，Web 无低成本等价——不实现（保持可读性由主题 token 保证）
+ * 网站跑不了 ArkUI systemMaterial，也不可能调用苹果私有液态玻璃。
+ * 这里只在「标题栏、底栏、弹窗」上复现六特性，正文仍用纸面 .surface。
  *
- * 档位（MaterialLevel → ADAPTIVE 自动适配 GPU/CPU）：
- *  - exquisite：完整效果（粒子 1300 / 流光动画 / 点光源 / 全档渐变模糊）
- *  - gentle：默认平衡（粒子 750 / 静态扫光 / 点光源 / 渐变模糊）
- *  - smooth：低配轻量（粒子 320 / 无流光无点光源 / 常显轻模糊）
- *  - 降级条件：cores<4 → smooth；no-motion 偏好 → smooth 且动画冻结
+ *  通透材质     .chrome.glass + backdrop-filter / 可选折射
+ *  渐变模糊     bindGradientBlur → --nav-sc（0 近透明 → 1 满模糊）
+ *  按压弹性     button:active scale
+ *  按压点光源   bindPressRipple → .imm-ripple
+ *  材质流光     exquisite 档 .chrome::after 缓速扫光
+ *  智能反色     主题 + --nav-sc 驱动 --chrome-ink / data-chrome（不做全屏取样）
+ *
+ * 档位 = 华为 MaterialLevel：
+ *  exquisite 强 · gentle 均衡 · smooth 弱 · adaptive 按设备自动选
  */
 
 export type ImmLevel = 'exquisite' | 'gentle' | 'smooth';
+export type ImmPref = 'adaptive' | ImmLevel;
+
+export const IMM_PREFS: ImmPref[] = ['adaptive', 'exquisite', 'gentle', 'smooth'];
+export const IMM_LABEL: Record<ImmPref, string> = {
+  adaptive: '自适应',
+  exquisite: '强',
+  gentle: '均衡',
+  smooth: '弱',
+};
 
 let level: ImmLevel | null = null;
 
+const asPref = (v: unknown): ImmPref =>
+  v === 'exquisite' || v === 'gentle' || v === 'smooth' || v === 'adaptive' ? v : 'adaptive';
+
+export function readImmPref(): ImmPref {
+  try {
+    const raw = localStorage.getItem('mneme-prefs');
+    if (raw) return asPref((JSON.parse(raw) as { imm?: unknown }).imm);
+  } catch { /* 首次 / 隐私模式 */ }
+  return 'adaptive';
+}
+
+function pickAdaptive(): ImmLevel {
+  try {
+    if (document.documentElement.classList.contains('no-motion')) return 'smooth';
+    const cores = navigator.hardwareConcurrency ?? 4;
+    const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
+    const os = document.documentElement.dataset.os;
+    const shell = document.documentElement.dataset.shell;
+    if (os === 'harmony' && shell === 'phone') {
+      return cores >= 8 && mem >= 6 ? 'gentle' : 'smooth';
+    }
+    return cores >= 8 && mem >= 8 ? 'exquisite' : cores >= 4 ? 'gentle' : 'smooth';
+  } catch {
+    return 'gentle';
+  }
+}
+
+export function resetImmLevel(): void {
+  level = null;
+}
+
 export function immLevel(): ImmLevel {
   if (level) return level;
-  try {
-    if (document.documentElement.classList.contains('no-motion')) level = 'smooth';
-    else {
-      const cores = navigator.hardwareConcurrency ?? 4;
-      const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
-      const os = document.documentElement.dataset.os;
-      const shell = document.documentElement.dataset.shell;
-      if (os === 'harmony' && shell === 'phone') {
-        level = cores >= 8 && mem >= 6 ? 'gentle' : 'smooth';
-      } else {
-        level = cores >= 8 && mem >= 8 ? 'exquisite' : cores >= 4 ? 'gentle' : 'smooth';
-      }
-    }
-  } catch { level = 'gentle'; }
+  const pref = readImmPref();
+  if (document.documentElement.classList.contains('no-motion')) level = 'smooth';
+  else if (pref === 'adaptive') level = pickAdaptive();
+  else level = pref;
   document.documentElement.dataset.imm = level;
+  document.documentElement.dataset.immPref = pref;
   return level;
 }
 
-/** 粒子规模（湮灭引擎按档位取用） */
-export function immParticleCount(): number {
-  const l = immLevel();
-  return l === 'exquisite' ? 1300 : l === 'gentle' ? 750 : 320;
+export function applyImmFromPrefs(): void {
+  resetImmLevel();
+  immLevel();
+  try { window.dispatchEvent(new Event('mneme:imm')); } catch { /* */ }
 }
 
-/** 按压点光源是否启用 */
+export function immDisplacementScale(): number {
+  const l = immLevel();
+  return l === 'exquisite' ? 14 : l === 'gentle' ? 8 : 0;
+}
+
+/** 粒子规模（湮灭引擎按档位取用；手机再削一档密度） */
+export function immParticleCount(): number {
+  const l = immLevel();
+  const phone = document.documentElement.dataset.shell === 'phone';
+  if (l === 'exquisite') return phone ? 720 : 1300;
+  if (l === 'gentle') return phone ? 420 : 750;
+  return phone ? 180 : 320;
+}
+
 export function immRipple(): boolean {
   const l = immLevel();
   return (l === 'exquisite' || l === 'gentle') && !document.documentElement.classList.contains('no-motion');
 }
 
-/** 小屏 / 省流 / 减动效：跳过序章粒子与关闭湮灭，把首屏让给正文。 */
+/** 小屏 / 省流 / 减动效：跳过序章重动画，把首屏让给正文。不负责弹窗粒子。 */
 export function skipHeavyFx(): boolean {
   try {
     if (document.documentElement.classList.contains('no-motion')) return true;
@@ -65,27 +108,48 @@ export function skipHeavyFx(): boolean {
   return false;
 }
 
-/** 渐变模糊：绑定滚动容器 → 导航栏 --nav-sc（0 透明 → 1 模糊）。rAF 节流，卸载即停。 */
+/** 弹窗粒子：手机也开，只在减动效 / 关玻璃 / 省流时跳过。密度由档位收。 */
+export function canAnnihilate(): boolean {
+  try {
+    if (document.documentElement.classList.contains('no-motion')) return false;
+    if (document.documentElement.classList.contains('no-glass')) return false;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+    const c = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+    if (c?.saveData) return false;
+    if (c?.effectiveType === 'slow-2g' || c?.effectiveType === '2g') return false;
+  } catch { /* */ }
+  return true;
+}
+
+/** 渐变模糊：绑定滚动容器 → 导航栏 --nav-sc（0 透明 → 1 模糊）。rAF 节流。 */
 export function bindGradientBlur(scrollEl: HTMLElement, navEl: HTMLElement): () => void {
-  if (immLevel() === 'smooth') { navEl.style.setProperty('--nav-sc', '1'); return () => {}; }
   let raf = 0;
   const update = () => {
     raf = 0;
-    const max = 140; // 滚动 140px 内完成透明→模糊过渡（IMMERSIVE_GRADIENT_BLUR 语义）
+    if (immLevel() === 'smooth') {
+      navEl.style.setProperty('--nav-sc', '1');
+      return;
+    }
+    const max = 140;
     const v = Math.max(0, Math.min(1, scrollEl.scrollTop / max));
     navEl.style.setProperty('--nav-sc', v.toFixed(3));
   };
   const onScroll = () => { if (!raf) raf = requestAnimationFrame(update); };
   scrollEl.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('mneme:imm', update);
   update();
-  return () => { scrollEl.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
+  return () => {
+    scrollEl.removeEventListener('scroll', onScroll);
+    window.removeEventListener('mneme:imm', update);
+    if (raf) cancelAnimationFrame(raf);
+  };
 }
 
-/** 按压点光源：pointerdown 在玻璃组件触点生成扩散光晕，600ms 后自毁 */
+/** 按压点光源：每次按下再读档位，偏好切换不必重绑。 */
 export function bindPressRipple(root: HTMLElement): () => void {
-  if (!immRipple()) return () => {};
   const onDown = (e: PointerEvent) => {
-    const card = (e.target as HTMLElement).closest('.glass');
+    if (!immRipple()) return;
+    const card = (e.target as HTMLElement).closest('.chrome, .glass');
     if (!card) return;
     const r = card.getBoundingClientRect();
     const dot = document.createElement('span');
@@ -93,7 +157,6 @@ export function bindPressRipple(root: HTMLElement): () => void {
     dot.style.left = `${e.clientX - r.left}px`;
     dot.style.top = `${e.clientY - r.top}px`;
     dot.style.width = dot.style.height = '12px';
-    (card as HTMLElement).style.position ||= '';
     if (getComputedStyle(card).position === 'static') (card as HTMLElement).style.position = 'relative';
     card.appendChild(dot);
     setTimeout(() => dot.remove(), 640);
@@ -102,7 +165,20 @@ export function bindPressRipple(root: HTMLElement): () => void {
   return () => root.removeEventListener('pointerdown', onDown);
 }
 
-/** 运行时帧率哨兵：连续采样过低则自动降档（exquisite→gentle→smooth），只降不升，避免抖动 */
+/** 智能反色：夜色走浅墨；纸色顶栏在透明段加纸晕，避免压到深色底。 */
+export function bindSmartInk(): () => void {
+  const apply = () => {
+    const html = document.documentElement;
+    const night = html.dataset.theme === 'night';
+    html.dataset.chrome = night ? 'light' : 'dark';
+  };
+  apply();
+  const mo = new MutationObserver(apply);
+  mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  return () => mo.disconnect();
+}
+
+/** 运行时帧率哨兵：只降不升。手动「强」也会因掉帧落到均衡/弱。 */
 export function watchFps(): void {
   if (document.documentElement.classList.contains('no-motion')) return;
   let samples = 0, lowStreak = 0, last = performance.now(), raf = 0;
@@ -121,10 +197,15 @@ export function watchFps(): void {
       const fps = 1000 / (dt / (samples + 1));
       samples = 0; last = now;
       if (fps < 45) lowStreak++; else lowStreak = 0;
-      if (lowStreak >= 3) {   // 连续 1.5s 低于 45fps → 降档
+      if (lowStreak >= 3) {
         const cur = document.documentElement.dataset.imm;
-        const next = cur === 'exquisite' ? 'gentle' : cur === 'gentle' ? 'smooth' : null;
-        if (next) { document.documentElement.dataset.imm = next; lowStreak = 0; }
+        const next: ImmLevel | null = cur === 'exquisite' ? 'gentle' : cur === 'gentle' ? 'smooth' : null;
+        if (next) {
+          level = next;
+          document.documentElement.dataset.imm = next;
+          lowStreak = 0;
+          try { window.dispatchEvent(new Event('mneme:imm')); } catch { /* */ }
+        }
         if (next === 'smooth' || cur === 'smooth') { stop(); return; }
       }
     } else samples++;
@@ -142,6 +223,5 @@ export function watchFps(): void {
   };
   document.addEventListener('visibilitychange', onVis);
   raf = requestAnimationFrame(tick);
-  /* 健康帧只盯开场 10 秒；一直流畅就停，避免全站常驻 rAF。 */
   window.setTimeout(() => { if (lowStreak === 0) stop(); }, 10_000);
 }

@@ -28,10 +28,13 @@ const n2 = (x: number, y: number): number => {
   return s - Math.floor(s);
 };
 
-/** 档位参数（粒子密度与步长，对齐文档强/均衡/弱分级） */
+/** 档位：白尘密度 + 步长。手机再削，避免 60k 粒打 INP。 */
 const tier = () => {
   const l = immLevel();
-  return l === 'exquisite' ? { step: 3, keep: 0.16 } : l === 'gentle' ? { step: 4, keep: 0.11 } : { step: 6, keep: 0.07 };
+  const phone = typeof document !== 'undefined' && document.documentElement.dataset.shell === 'phone';
+  if (l === 'exquisite') return { step: phone ? 4 : 3, keep: phone ? 0.14 : 0.22, frost: phone ? 220 : 480, cap: phone ? 8000 : 24000 };
+  if (l === 'gentle') return { step: phone ? 5 : 4, keep: phone ? 0.09 : 0.14, frost: phone ? 120 : 260, cap: phone ? 4500 : 14000 };
+  return { step: phone ? 7 : 6, keep: phone ? 0.05 : 0.08, frost: phone ? 60 : 120, cap: phone ? 2200 : 6000 };
 };
 
 /* ------------------------------------------------------------------ */
@@ -137,22 +140,20 @@ void main() {
   /* 欧拉积分阻尼解析解：位移 = v0·(1−e^{−c·t})/c */
   float c = 0.62;
   float inv = (1.0 - exp(-c * age)) / c;
-  /* 持续向上浮力（参考帧：先爆发后缓慢上飘） */
-  float buoy = -9.0 * age * age * 0.5;
-  /* 弱湍流：随生命增强，相位由随机种子偏移 */
+  /* 霜面消散：少浮力、弱漂移，粒子多半留在原像素上化开 */
+  float buoy = -2.4 * age * age * 0.5;
   vec2 turb = vec2(
-    sin(age * 0.9 + a_seed * 6.28318),
-    cos(age * 0.7 + a_seed * 6.28318)
-  ) * (9.0 + 20.0 * k);
-  /* 悬浮呼吸：每个粒子按自身相位缓慢上下浮动（仙境感） */
-  float breathe = sin(age * 1.1 + a_seed * 12.566) * 5.0;
+    sin(age * 1.4 + a_seed * 6.28318),
+    cos(age * 1.1 + a_seed * 6.28318)
+  ) * (2.4 + 7.0 * k);
+  float breathe = sin(age * 1.6 + a_seed * 12.566) * 1.6;
   vec2 p = a_pos + a_vel * inv + turb + vec2(0.0, buoy + breathe);
   vec2 clip = (p / u_res) * 2.0 - 1.0;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-  float fade = pow(1.0 - k, 0.72);   // 中段维持可见（玻璃态绵长），尾部快速消隐
-  gl_PointSize = u_size * u_dpr * (0.45 + fade * 0.8);
+  float fade = pow(1.0 - k, 0.55);
+  gl_PointSize = u_size * u_dpr * (0.38 + fade * 0.55);
   v_color = a_color;
-  v_alpha = fade * 0.88;              // 半透明玻璃颗粒（lighter 叠加成通透光雾）
+  v_alpha = fade * 0.94;
 }`;
 
 const FRAG = `#version 300 es
@@ -200,10 +201,10 @@ export function annihilate(el: HTMLElement, onDone?: () => void): void {
   const w = doc.defaultView!;
   if (motionOff()) { done(); return; }
 
-  const card = (el.matches?.('.anno-card, .sg, .gp-sheet') ? el : null)
-    || (el.querySelector('.anno-card, .sg, .gp-sheet') as HTMLElement)
+  const card = (el.matches?.('.anno-card, .sg, .gp-sheet, .ck, .pref, .sk, .toc, .more-sheet, .cp, .fo') ? el : null)
+    || (el.querySelector('.anno-card, .sg, .gp-sheet, .ck, .pref, .sk, .toc, .more-sheet, .cp, .fo') as HTMLElement)
     || el;
-  const mask = card.closest('.anno-mask, .sg-mask') as HTMLElement | null;
+  const mask = card.closest('.anno-mask, .sg-mask, .ck-mask, .pref-mask, .toc-mask, .more-mask, .cp-mask') as HTMLElement | null;
   if (mask) mask.classList.add('annihilating');
 
   const R = card.getBoundingClientRect();
@@ -235,13 +236,12 @@ export function annihilate(el: HTMLElement, onDone?: () => void): void {
     const sample = await getSample(card);
     if (card.isConnected) card.style.visibility = 'hidden';   // 快照就绪瞬间 DOM 隐由粒子接管
 
-    const { step, keep } = tier();
+    const { step, keep, frost, cap } = tier();
     if (!sample) { releaseUi(); return; }
 
-    /* ── 网格采样：step×step 一格一粒子，取像素真实颜色 ── */
+    /* ── 网格采样：像素色 + 一层暖白霜点（对标弹窗粒子消散） ── */
     const sw = sample.w, sh = sample.h, data = sample.data;
     const sx = R.width / sw, sy = R.height / sh;
-    const cap = 60000;
     const px: number[] = [], py: number[] = [], pvx: number[] = [], pvy: number[] = [];
     const pcl: number[] = [], pdl: number[] = [], plf: number[] = [], psd: number[] = [];
     let maxEnd = BURST + 400;
@@ -253,25 +253,36 @@ export function annihilate(el: HTMLElement, onDone?: () => void): void {
         if (keep < 1 && Math.random() > keep) continue;
         const x = R.left + gx * sx, y = R.top + gy * sy;
         px.push(x, y);
-        pvx.push((Math.random() - 0.5) * 150);
-        pvy.push(-(18 + Math.random() * 64));
+        pvx.push((Math.random() - 0.5) * 46);
+        pvy.push(-(4 + Math.random() * 22));
         const lum = (data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11) / 255;
-                if (Math.random() < 0.85) {
-                  /* 发光尘：原色向暖白提亮混合（浅底上呈光点而非灰雾） */
-                  const mixW = 0.62 + (1 - lum) * 0.22;
-                  pcl.push(Math.min(1, data[i] / 255 * (1 - mixW) + 1.0 * mixW * 0.99),
-                           Math.min(1, data[i + 1] / 255 * (1 - mixW) + 0.985 * mixW),
-                           Math.min(1, data[i + 2] / 255 * (1 - mixW) + 0.95 * mixW));
-                } else {
-                  pcl.push(Math.min(1, data[i] / 255 * 1.08 + 0.02), Math.min(1, data[i + 1] / 255 * 1.08 + 0.02), Math.min(1, data[i + 2] / 255 * 1.08 + 0.03));
-                }
-        const dly = ((R.bottom - y) / R.height) * BURST * (0.75 + n2(x * 0.08, y * 0.08) * 0.5) + n2(x * 0.31, y * 0.17) * 24;
-        const life = 520 + Math.random() * 360;
+        const mixW = 0.88 + (1 - lum) * 0.08;
+        pcl.push(
+          Math.min(1, data[i] / 255 * (1 - mixW) + 0.995 * mixW),
+          Math.min(1, data[i + 1] / 255 * (1 - mixW) + 0.99 * mixW),
+          Math.min(1, data[i + 2] / 255 * (1 - mixW) + 0.97 * mixW),
+        );
+        const dly = ((R.bottom - y) / R.height) * BURST * (0.7 + n2(x * 0.08, y * 0.08) * 0.45) + n2(x * 0.31, y * 0.17) * 18;
+        const life = 420 + Math.random() * 280;
         pdl.push(dly);
         plf.push(life);
         psd.push(Math.random());
         maxEnd = Math.max(maxEnd, dly + life);
       }
+    }
+    for (let n = 0; n < frost && px.length / 2 < cap; n++) {
+      const x = R.left + Math.random() * R.width;
+      const y = R.top + Math.random() * R.height;
+      px.push(x, y);
+      pvx.push((Math.random() - 0.5) * 28);
+      pvy.push((Math.random() - 0.5) * 18);
+      pcl.push(0.995, 0.992, 0.978);
+      const dly = ((R.bottom - y) / R.height) * BURST * 0.55 + Math.random() * 40;
+      const life = 360 + Math.random() * 220;
+      pdl.push(dly);
+      plf.push(life);
+      psd.push(Math.random());
+      maxEnd = Math.max(maxEnd, dly + life);
     }
     const N = px.length / 2;
     if (N === 0) { releaseUi(); return; }
@@ -319,7 +330,7 @@ export function annihilate(el: HTMLElement, onDone?: () => void): void {
       const uTime = gl.getUniformLocation(prog, 'u_time');
       gl.uniform2f(gl.getUniformLocation(prog, 'u_res'), w.innerWidth, w.innerHeight);
       gl.uniform1f(gl.getUniformLocation(prog, 'u_dpr'), dpr);
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_size'), step * 0.42);
+      gl.uniform1f(gl.getUniformLocation(prog, 'u_size'), step * 0.30);
       gl.viewport(0, 0, cvs.width, cvs.height);
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE);       // lighter 加色叠加成光团

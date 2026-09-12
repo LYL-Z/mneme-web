@@ -108,7 +108,7 @@ export function ChapterPanel({ code, seq, onClose, onOpenDoc, onOpenImagery, onO
   return (
     <div className="cp-mask" onMouseDown={onClose}>
       <aside
-        className="cp glass" role="dialog" aria-label="章节材料链"
+        className="cp glass chrome" role="dialog" aria-label="章节材料链"
         style={{ ['--vc' as string]: st.s === 'ok' ? st.d.volume.color_token : (volMeta?.color || undefined) }}
         onMouseDown={e => e.stopPropagation()}
       >

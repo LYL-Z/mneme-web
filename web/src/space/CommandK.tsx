@@ -10,6 +10,7 @@ import { isModifiedClick } from '../navClick';
 import { askUnlock } from '../unlock';
 import { prefetchDoc } from '../prefetch';
 import { copyPermalink } from '../cite';
+import { armSnapshot, dismissGlass } from '../glassDismiss';
 
 /**
  * ⌘K / Ctrl+K 全局检索 · 六分组全部可达（v3.2）
@@ -108,15 +109,26 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
   const listRef = useRef<HTMLDivElement>(null);
   const seqRef = useRef(0);
   const triggerRef = useRef<HTMLElement | null>(null); // 打开时的触发点：关闭后归还焦点
+  const closing = useRef(false);
   useFocusTrap(boxRef, open);
 
-  /* 统一出口：先归焦，再交给调用方导航 */
-  const close = () => {
+  /* 统一出口：检索命中立刻关（保 INP）；Esc / 点遮罩走粒子 */
+  const finishClose = () => {
+    closing.current = false;
     const t = triggerRef.current;
     triggerRef.current = null;
     onClose();
     if (t && document.contains(t)) t.focus({ preventScroll: true });
     else (document.querySelector('.rail-space.on') as HTMLElement | null)?.focus({ preventScroll: true });
+  };
+  const close = (fx = false) => {
+    if (closing.current) return;
+    if (fx) {
+      closing.current = true;
+      dismissGlass(boxRef.current, finishClose);
+      return;
+    }
+    finishClose();
   };
 
   useEffect(() => {
@@ -145,7 +157,9 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
       else triggerRef.current = document.querySelector('.ck-hint'); // 键盘唤起无触发点 → 归给常驻入口
     }
     setQ(''); setGroups(null); setCursor(0);
+    closing.current = false;
     setTimeout(() => inputRef.current?.focus(), 30);
+    setTimeout(() => armSnapshot(boxRef.current), 400);
     const el = listRef.current?.parentElement;
     if (el && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
       animate(el, { opacity: [0, 1], translateY: [-14, 0], scale: [0.98, 1], duration: 320, ease: 'outExpo' });
@@ -279,7 +293,7 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
       if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') {
         e.stopPropagation(); // 捕获阶段拦截：Esc 只关检索，不穿透关闭底层章节面板
-        close();
+        close(true);
       }
       else if (e.key === 'ArrowDown') { e.preventDefault(); setCursor(c => Math.min(c + 1, flat.length - 1)); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); setCursor(c => Math.max(c - 1, 0)); }
@@ -298,8 +312,8 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
   let idx = -1;
 
   return (
-    <div className="ck-mask" onMouseDown={close}>
-      <div ref={boxRef} className="ck glass" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="检索全库">
+    <div className="ck-mask" onMouseDown={() => close(true)}>
+      <div ref={boxRef} className="ck glass chrome" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="检索全库">
         <input
           ref={inputRef} className="ck-input" value={q}
           placeholder="检索全库，或选择一条命令…"

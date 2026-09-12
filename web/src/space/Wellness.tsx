@@ -8,6 +8,8 @@ import { bgmGet, bgmSet, bgmSub } from '../bgm';
 import { useFocusTrap } from '../focusTrap';
 import { readScroller } from '../readHost';
 import { osLabel, readDevice, shellLabel, type DeviceInfo } from '../device';
+import { applyImmFromPrefs, IMM_LABEL, IMM_PREFS, type ImmPref } from '../immersive';
+import { armSnapshot, dismissGlass } from '../glassDismiss';
 
 /**
  * v4 · C5 键盘导航层 + C6 阅读足迹 + E3 阅读时长感知 + E4 站内偏好开关（含 E2 高对比）。
@@ -16,7 +18,7 @@ import { osLabel, readDevice, shellLabel, type DeviceInfo } from '../device';
  * - j/k 滚动。快捷键总表由顶栏「?」打开，避免与 App 的 g 跳转抢键。
  * 全部偏好落 localStorage（mneme-prefs），documentElement class 驱动 CSS/JS 行为。
  */
-export interface MnemePrefs { motion: boolean; glass: boolean; contrast: boolean }
+export interface MnemePrefs { motion: boolean; glass: boolean; contrast: boolean; imm: ImmPref }
 const P_KEY = 'mneme-prefs';
 const systemMotion = () => {
   try { return !matchMedia('(prefers-reduced-motion: reduce)').matches; }
@@ -25,15 +27,21 @@ const systemMotion = () => {
 export const readPrefs = (): MnemePrefs => {
   try {
     const raw = localStorage.getItem(P_KEY);
-    if (raw) return { motion: true, glass: true, contrast: false, ...JSON.parse(raw) };
+    if (raw) {
+      const o = JSON.parse(raw) as Partial<MnemePrefs>;
+      const imm: ImmPref = o.imm === 'exquisite' || o.imm === 'gentle' || o.imm === 'smooth' || o.imm === 'adaptive'
+        ? o.imm : 'adaptive';
+      return { motion: o.motion !== false, glass: o.glass !== false, contrast: !!o.contrast, imm };
+    }
   } catch { /* 首次 */ }
-  return { motion: systemMotion(), glass: true, contrast: false };
+  return { motion: systemMotion(), glass: true, contrast: false, imm: 'adaptive' };
 };
 const applyPrefs = (p: MnemePrefs) => {
   const el = document.documentElement;
   el.classList.toggle('no-motion', !p.motion);
   el.classList.toggle('no-glass', !p.glass);
   el.classList.toggle('contrast-high', p.contrast);
+  applyImmFromPrefs();
 };
 
 /** 20 分钟可关微歇：不写进「当日一次」 */
@@ -101,7 +109,19 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
   const [bgm, setBgm] = useState(bgmGet);
   const [dev, setDev] = useState<DeviceInfo | null>(() => (typeof window === 'undefined' ? null : readDevice()));
   const prefRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(prefRef, panel === 'prefs', () => setPanel('none'));
+  const closing = useRef(false);
+  const closePrefs = () => {
+    if (closing.current) return;
+    closing.current = true;
+    dismissGlass(prefRef.current, () => { closing.current = false; setPanel('none'); });
+  };
+  useFocusTrap(prefRef, panel === 'prefs', closePrefs);
+  useEffect(() => {
+    if (panel !== 'prefs') return;
+    closing.current = false;
+    const t = window.setTimeout(() => armSnapshot(prefRef.current), 400);
+    return () => window.clearTimeout(t);
+  }, [panel]);
   useEffect(() => bgmSub(setBgm), []);
   useEffect(() => {
     const on = () => setDev(readDevice());
@@ -182,8 +202,13 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const set = (k: keyof MnemePrefs) => {
+  const set = (k: 'motion' | 'glass' | 'contrast') => {
     const next = { ...prefs, [k]: !prefs[k] };
+    setPrefs(next);
+    try { localStorage.setItem(P_KEY, JSON.stringify(next)); } catch { /* 静默 */ }
+  };
+  const setImm = (imm: ImmPref) => {
+    const next = { ...prefs, imm };
     setPrefs(next);
     try { localStorage.setItem(P_KEY, JSON.stringify(next)); } catch { /* 静默 */ }
   };
@@ -191,8 +216,8 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
   return (
     <>
       <button
-        className="pref-hint glass"
-        onClick={() => setPanel(v => (v === 'prefs' ? 'none' : 'prefs'))}
+        className="pref-hint glass chrome"
+        onClick={() => { if (panel === 'prefs') closePrefs(); else setPanel('prefs'); }}
         aria-label="偏好与足迹"
         title="偏好 · 足迹"
       >
@@ -200,20 +225,31 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
       </button>
 
       {panel === 'prefs' && (
-        <div className="pref-mask" onMouseDown={() => setPanel('none')}>
-          <div ref={prefRef} className="pref glass" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="pref-title">
+        <div className="pref-mask" onMouseDown={closePrefs}>
+          <div ref={prefRef} className="pref glass chrome" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="pref-title">
             <header className="pref-head">
               <p className="greek pref-kicker">ΠΡΟΘΕΣΙΣ · 偏好</p>
               <h1 id="pref-title">阅读偏好</h1>
-              <button className="gp-sheet-x" onClick={() => setPanel('none')} aria-label="关闭">×</button>
+              <button className="gp-sheet-x" onClick={closePrefs} aria-label="关闭">×</button>
             </header>
             <div className="pref-rows">
+              <fieldset className="pref-row pref-imm">
+                <legend>沉浸光感<small>顶栏、底栏和弹窗 · 对标鸿蒙强 / 均衡 / 弱 / 自适应</small></legend>
+                <div className="pref-seg" role="radiogroup" aria-label="沉浸光感档位">
+                  {IMM_PREFS.map(k => (
+                    <label key={k}>
+                      <input type="radio" name="imm" value={k} checked={prefs.imm === k} onChange={() => setImm(k)} />
+                      {IMM_LABEL[k]}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               <label className="pref-row">
                 <span>滚动进场动效<small>空间切换与首屏的浮入动画</small></span>
                 <input type="checkbox" checked={prefs.motion} onChange={() => set('motion')} />
               </label>
               <label className="pref-row">
-                <span>液态玻璃光效<small>毛玻璃模糊与跟随光（低端设备可关）</small></span>
+                <span>液态玻璃光效<small>毛玻璃与跟随光的总开关（关了档位也不渲染）</small></span>
                 <input type="checkbox" checked={prefs.glass} onChange={() => set('glass')} />
               </label>
               <label className="pref-row">

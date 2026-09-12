@@ -19,8 +19,8 @@
     var(--glass-shadow);
 }
 
-/* ② 折射置换：url() 在先、模糊饱和在后 —— 先折射后散射，符合真实玻璃 */
-.lg-displacement .glass {
+/* ② 折射置换：只给系统铬（顶栏弹窗），内容区玻璃不做置换 —— 对齐华为功耗约束 */
+.lg-displacement .chrome.glass {
   backdrop-filter: url('#mneme-glass') var(--glass-blur);
   -webkit-backdrop-filter: url('#mneme-glass') var(--glass-blur);
 }
@@ -43,19 +43,28 @@
   animation: lg-sweep 900ms var(--ease-out) both;
 }
 
-/* 大面板扫光加重一档：顶栏 / ⌘K 弹窗 / 星图抽屉 / 章节材料链面板
-   （阅读正文 .ar-body 已改稳定实底 --surface-read，不在此列——正文不折射） */
+/* 系统铬扫光加重：虹彩胶囊（暖金 / 冷蓝边缘）——正文不折射 */
+.chrome.glass,
+.anno-card.glass,
+.sg.glass {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.28), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--aegean) 7%, transparent), transparent 46%),
+    var(--glass-bg);
+  border-color: color-mix(in srgb, var(--glass-border-bright) 72%, var(--glass-border));
+}
 .nav.glass::before,
 .rail::before,
 .topbar::before,
+.chrome.glass::before,
 .ck.glass::before,
 .gp-sheet.glass::before,
 .cp.glass::before {
   background:
     linear-gradient(105deg, var(--glass-sweep-strong), transparent 55%),
     linear-gradient(90deg,
-      color-mix(in srgb, var(--bronze) 12%, transparent), transparent 10%,
-      transparent 90%, color-mix(in srgb, var(--aegean) 10%, transparent)),
+      color-mix(in srgb, var(--bronze) 16%, transparent), transparent 12%,
+      transparent 88%, color-mix(in srgb, var(--aegean) 14%, transparent)),
     radial-gradient(120% 60% at 50% -10%, var(--glass-hi-top), transparent 60%);
 }
 
@@ -78,7 +87,7 @@
 /* ⑤ 降级：减动效 → 置换与扫光关闭，玻璃静止（跟随光由 JS 守卫不启动） */
 @media (prefers-reduced-motion: reduce) {
   .glass::before { animation: none; }
-  .lg-displacement .glass {
+  .lg-displacement .chrome.glass {
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
   }

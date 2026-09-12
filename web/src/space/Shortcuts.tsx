@@ -1,6 +1,7 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type { SpaceKey } from '../route';
 import { useFocusTrap } from '../focusTrap';
+import { armSnapshot, dismissGlass } from '../glassDismiss';
 
 export type GoChord =
   | { t: 'space'; key: SpaceKey; name: string }
@@ -51,14 +52,26 @@ const ROWS: { keys: string; name: string }[] = [
 
 export function ShortcutsHelp({ open, onClose }: { open: boolean; onClose: () => void }) {
   const boxRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(boxRef, open, onClose);
+  const closing = useRef(false);
+  const close = () => {
+    if (closing.current) return;
+    closing.current = true;
+    dismissGlass(boxRef.current, () => { closing.current = false; onClose(); });
+  };
+  useFocusTrap(boxRef, open, close);
+  useEffect(() => {
+    if (!open) return;
+    closing.current = false;
+    const t = window.setTimeout(() => armSnapshot(boxRef.current), 400);
+    return () => window.clearTimeout(t);
+  }, [open]);
   if (!open) return null;
   return (
-    <div className="ck-mask" onMouseDown={onClose} role="presentation">
-      <div ref={boxRef} className="sk glass" onMouseDown={e => e.stopPropagation()} role="dialog" aria-labelledby="sk-title" aria-modal="true">
+    <div className="ck-mask" onMouseDown={close} role="presentation">
+      <div ref={boxRef} className="sk glass chrome" onMouseDown={e => e.stopPropagation()} role="dialog" aria-labelledby="sk-title" aria-modal="true">
         <p className="greek sk-kicker">ΠΛΗΚΤΡΑ</p>
         <h1 id="sk-title">键盘</h1>
-        <button type="button" className="gp-sheet-x sk-x" onClick={onClose} aria-label="关闭">×</button>
+        <button type="button" className="gp-sheet-x sk-x" onClick={close} aria-label="关闭">×</button>
         <div className="sk-grid">
           {ROWS.map(r => (
             <p key={r.keys} className="sk-row"><kbd>{r.keys}</kbd><span>{r.name}</span></p>

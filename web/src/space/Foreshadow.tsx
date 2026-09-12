@@ -51,7 +51,7 @@ export function Foreshadow({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fo-mask" onMouseDown={onClose}>
-      <div className="fo glass" onMouseDown={e => e.stopPropagation()} ref={rootRef}>
+      <div className="fo glass chrome" onMouseDown={e => e.stopPropagation()} ref={rootRef}>
         <header className="fo-head">
           <p className="greek fo-kicker">ΠΡΟΟΠΤΙΚΗ · 伏应矩阵</p>
           <h1>伏笔 — 回收 · 六部配对图</h1>

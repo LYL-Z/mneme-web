@@ -218,7 +218,7 @@ export function DailySky({ theme, onOpenPerson, onOpenChapter }: {
   const mm = String(today.getMonth() + 1).padStart(2, '0');
   const dd = String(today.getDate()).padStart(2, '0');
   return (
-    <div className="ds glass" ref={wrapRef}>
+    <div className="ds surface" ref={wrapRef}>
       <header className="ds-head">
         <p className="greek ds-kicker">ΩΡΑΣΚΟΠΙΟΝ · 今日星座</p>
         <h2>{today.getFullYear()} 年 {mm} 月 {dd} 日 的天空</h2>

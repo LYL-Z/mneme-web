@@ -908,7 +908,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onOpenPerson, onClearFo
       )}
 
       {sheet && (
-        <aside className="gp-sheet glass">
+        <aside className="gp-sheet glass chrome">
           <button className="gp-sheet-x" onClick={() => { setSheet(null); if (focusPersonId != null) onClearFocus(); }}>×</button>
           <p className="gp-sheet-grp" style={{ color: GROUP_PALETTE[sheet.relation_group] || 'var(--bronze)' }}>
             {sheet.relation_group}{sheet.stage ? ` · ${sheet.stage}` : ''}

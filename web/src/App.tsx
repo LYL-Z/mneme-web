@@ -10,7 +10,8 @@ import { Wellness } from './space/Wellness';
 import { Announce } from './space/Announce';
 import { BGM } from './space/BGM';
 import { bgmGet, bgmSet, bgmSub } from './bgm';
-import { immLevel, bindGradientBlur, bindPressRipple, watchFps } from './immersive';
+import { immLevel, immDisplacementScale, bindGradientBlur, bindPressRipple, bindSmartInk, watchFps } from './immersive';
+import { armSnapshot, dismissGlass } from './glassDismiss';
 import { Foreshadow } from './space/Foreshadow';
 import { ShortcutsHelp, G_THEN } from './space/Shortcuts';
 import { readPrefs } from './space/Wellness';
@@ -116,8 +117,19 @@ export default function App() {
     try { return localStorage.getItem('mneme-focus') === '1'; } catch { return false; }
   });
   useEffect(() => {
-    immLevel(); // v4 · 沉浸光感：ADAPTIVE 档位探测
-    watchFps();  // v5.1 · 运行时帧率哨兵：卡顿自动降档
+    immLevel();
+    watchFps();
+    const applyDisp = () => {
+      const node = document.getElementById('mneme-disp');
+      if (node) node.setAttribute('scale', String(immDisplacementScale()));
+    };
+    applyDisp();
+    const offInk = bindSmartInk();
+    window.addEventListener('mneme:imm', applyDisp);
+    return () => {
+      offInk();
+      window.removeEventListener('mneme:imm', applyDisp);
+    };
   }, []);
   useEffect(() => {
     if (gateDone) prefetchWorkbench();
@@ -196,8 +208,30 @@ export default function App() {
   const moreRef = useRef<HTMLDivElement>(null);
   const tocRef = useRef<HTMLDivElement>(null);
   const readBarRef = useRef<HTMLSpanElement>(null);
-  useFocusTrap(moreRef, moreOpen, () => setMoreOpen(false));
-  useFocusTrap(tocRef, tocOpen, () => setTocOpen(false));
+  const fxLock = useRef(false);
+  const closeMore = (after?: () => void) => {
+    if (fxLock.current) return;
+    const finish = () => { fxLock.current = false; setMoreOpen(false); after?.(); };
+    if (moreRef.current) {
+      fxLock.current = true;
+      dismissGlass(moreRef.current, finish);
+    } else finish();
+  };
+  const closeToc = (after?: () => void) => {
+    if (fxLock.current) return;
+    const finish = () => { fxLock.current = false; setTocOpen(false); after?.(); };
+    if (tocRef.current) {
+      fxLock.current = true;
+      dismissGlass(tocRef.current, finish);
+    } else finish();
+  };
+  useFocusTrap(moreRef, moreOpen, () => closeMore());
+  useFocusTrap(tocRef, tocOpen, () => closeToc());
+  useEffect(() => {
+    if (!moreOpen && !tocOpen) { fxLock.current = false; return; }
+    const t = window.setTimeout(() => armSnapshot(moreOpen ? moreRef.current : tocRef.current), 400);
+    return () => window.clearTimeout(t);
+  }, [moreOpen, tocOpen]);
   useEffect(() => bgmSub(s => setBgmOn(s.on)), []);
   const [foCount, setFoCount] = useState<number | null>(null);
   const [theme, setTheme] = useState<'paper' | 'night'>(() => {
@@ -473,9 +507,9 @@ export default function App() {
       if (ckOpen) return;
       if (typing(e)) return;
       if (e.key === 'Escape') {
-        if (moreOpen) { e.preventDefault(); setMoreOpen(false); }
+        if (moreOpen) { e.preventDefault(); closeMore(); }
         else if (helpOpen) { e.preventDefault(); setHelpOpen(false); }
-        else if (tocOpen) { e.preventDefault(); setTocOpen(false); }
+        else if (tocOpen) { e.preventDefault(); closeToc(); }
         clearG();
         return;
       }
@@ -552,6 +586,15 @@ export default function App() {
   }, [ckOpen, helpOpen, moreOpen, tocOpen, go]);
 
   const spaceKey: SpaceKey = route.v === 'space' ? route.key : route.v === 'doc' ? 'archive' : route.v === 'person' ? 'graph' : route.v === 'imagery' ? 'museum' : 'study';
+  useEffect(() => {
+    document.documentElement.dataset.space = spaceKey;
+    const nav = document.querySelector('.topbar') as HTMLElement | null;
+    const host = readScroller() || document.querySelector('.space-host') as HTMLElement | null;
+    if (nav && host) {
+      if (document.documentElement.dataset.imm === 'smooth') nav.style.setProperty('--nav-sc', '1');
+      else nav.style.setProperty('--nav-sc', Math.max(0, Math.min(1, host.scrollTop / 140)).toFixed(3));
+    }
+  }, [spaceKey]);
   const bookCode = bookFromVolume(
     route.v === 'volume' || route.v === 'chapter' ? route.code : undefined,
   );
@@ -587,7 +630,7 @@ export default function App() {
         <filter id="mneme-glass" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
           <feTurbulence type="fractalNoise" baseFrequency="0.9 0.9" numOctaves="2" seed="7" result="noise" />
           <feGaussianBlur in="noise" stdDeviation="1.6" result="soft" />
-          <feDisplacementMap in="SourceGraphic" in2="soft" scale="9" xChannelSelector="R" yChannelSelector="G" />
+          <feDisplacementMap id="mneme-disp" in="SourceGraphic" in2="soft" scale="9" xChannelSelector="R" yChannelSelector="G" />
         </filter>
       </svg>
 
@@ -597,7 +640,7 @@ export default function App() {
         <>
           {annoOpen && <Announce onClose={() => setAnnoOpen(false)} />}
           <div className="desk">
-          <aside className="rail" aria-label="空间导航">
+          <aside className="rail chrome" aria-label="空间导航">
             <div className="rail-desk">
             <div className="rail-brand">
               <span className="greek rail-greek">ΜΝΗΜΗ</span>
@@ -648,14 +691,14 @@ export default function App() {
               <button
                 type="button"
                 className={`rail-tab ${moreOpen || route.v === 'foreshadow' || MORE_KEYS.includes(spaceKey) ? 'on' : ''}`}
-                onClick={() => setMoreOpen(v => !v)}
+                onClick={() => { if (moreOpen) closeMore(); else setMoreOpen(true); }}
               >
                 <span className="rail-tab-ico"><PhoneTabIcon kind="more" /></span>
                 <span className="rail-tab-lab">更多</span>
               </button>
             </nav>
           </aside>
-          <header className="topbar">
+          <header className="topbar chrome">
             <div className="read-bar" aria-hidden="true"><span ref={readBarRef} /></div>
             <SilkRibbon
               book={bookCode}
@@ -815,10 +858,10 @@ export default function App() {
           </main>
           </div>
 
-          <button className="toc-hint glass" onClick={() => setTocOpen(true)}>
+          <button className="toc-hint glass chrome" onClick={() => setTocOpen(true)}>
             <span className="greek">ΓΡΑΜΜΗ</span> 总纲
           </button>
-          <button className="ck-hint glass" onClick={() => setCkOpen(true)}>
+          <button className="ck-hint glass chrome" onClick={() => setCkOpen(true)}>
             <span className="greek">⌘K</span> 检索全库
           </button>
 
@@ -843,8 +886,8 @@ export default function App() {
           <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
           {gPending && <div className="g-pending glass" role="status">g …</div>}
           {moreOpen && (
-            <div className="more-mask" onMouseDown={() => setMoreOpen(false)} role="presentation">
-              <div ref={moreRef} className="more-sheet glass" onMouseDown={e => e.stopPropagation()} role="dialog" aria-labelledby="more-title" aria-modal="true">
+            <div className="more-mask" onMouseDown={() => closeMore()} role="presentation">
+              <div ref={moreRef} className="more-sheet glass chrome" onMouseDown={e => e.stopPropagation()} role="dialog" aria-labelledby="more-title" aria-modal="true">
                 <i className="more-grab" aria-hidden />
                 <p className="more-kicker">去往</p>
                 <h1 id="more-title">全馆</h1>
@@ -906,12 +949,12 @@ export default function App() {
           <BGM />
 
           {tocOpen && (
-            <div className="toc-mask" onMouseDown={() => setTocOpen(false)}>
-              <div ref={tocRef} className="toc glass" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="toc-title">
+            <div className="toc-mask" onMouseDown={() => closeToc()}>
+              <div ref={tocRef} className="toc glass chrome" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="toc-title">
                 <header className="toc-head">
                   <p className="greek toc-kicker">ΠΕΡΙΗΓΗΣΙΣ · 总纲</p>
                   <h1 id="toc-title">全馆导览</h1>
-                  <button className="gp-sheet-x" onClick={() => setTocOpen(false)} aria-label="关闭">×</button>
+                  <button className="gp-sheet-x" onClick={() => closeToc()} aria-label="关闭">×</button>
                 </header>
                 <div className="toc-list">
                   {NAV_GROUPS.map(g => (
