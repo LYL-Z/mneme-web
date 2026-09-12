@@ -123,7 +123,12 @@ html, body, #root { height: 100%; overflow-x: clip; }
   font-family: var(--sans); font-size: var(--fs-s); text-decoration: none;
   border: 1px solid var(--glass-border);
 }
-.skip-link:focus { top: 12px; }
+.skip-link:focus,
+.skip-link:focus-visible {
+  top: 12px;
+  outline: 2px solid var(--bronze);
+  outline-offset: 2px;
+}
 body {
   margin: 0;
   font-family: var(--serif);

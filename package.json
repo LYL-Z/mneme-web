@@ -1,4 +1,8 @@
 {
+  "name": "mneme-web",
+  "version": "8.8.0",
+  "private": true,
+  "description": "ΜΝΗΜΗ site engine — editorial biography apparatus, vault-read-only",
   "dependencies": {
     "tiny-pinyin": "^1.3.2",
     "hono": "^4.6.0",

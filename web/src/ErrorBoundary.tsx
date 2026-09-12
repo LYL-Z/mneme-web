@@ -37,11 +37,16 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (!this.state.error) return this.props.children;
+    const stale = isStaleChunk(this.state.error);
     return (
       <div className="eb-panel" role="alert">
-        <p className="eb-title">{this.props.label || '此空间'}加载失败</p>
-        <p className="eb-desc">页面渲染时发生异常，其余内容仍可正常浏览。</p>
-        <p className="eb-detail">{String(this.state.error.message || this.state.error).slice(0, 180)}</p>
+        <p className="eb-title">{stale ? '这一页的程序包过期了' : `${this.props.label || '此空间'}加载失败`}</p>
+        <p className="eb-desc">{stale
+          ? '发版后旧页面还在找已经换过哈希的脚本。请硬刷新一次（Ctrl+Shift+R，或长按刷新）。'
+          : '页面渲染时发生异常，其余内容仍可正常浏览。'}</p>
+        {!stale && (
+          <p className="eb-detail">{String(this.state.error.message || this.state.error).slice(0, 180)}</p>
+        )}
         <div className="eb-actions">
           <button type="button" onClick={() => this.setState({ error: null })}>重试</button>
           <button type="button" className="eb-ghost" onClick={() => location.reload()}>刷新页面</button>

@@ -2144,7 +2144,7 @@ body { overscroll-behavior: none; }
 }
 .ds-head { margin-bottom: 6px; }
 .ds-kicker { font-size: 11.5px; color: var(--bronze); margin: 0 0 4px; letter-spacing: 0.22em; }
-.ds-head :is(h2,h3) { margin: 0; font-size: var(--fs-h3); letter-spacing: 0.1em; font-weight: 600; }
+.ds-head :is(h2,h3) { margin: 0; font-size: var(--fs-h3); letter-spacing: 0.04em; font-weight: 600; }
 .ds-sub { margin: 6px 0 0; font-size: var(--fs-s); color: var(--ink-faint); line-height: 1.8; }
 .ds-canvas { display: block; width: 100%; height: 300px; }
 .ds-empty {
