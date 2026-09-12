@@ -66,7 +66,7 @@ const textFilter: NodeFilter = {
   acceptNode(n) {
     const p = (n.parentElement as HTMLElement | null);
     if (!n.textContent?.trim()) return NodeFilter.FILTER_REJECT;
-    if (p?.closest('script, style, button, .h-copy, mark.ev-hl, mark.q-hl')) return NodeFilter.FILTER_REJECT;
+    if (p?.closest('script, style, button, .h-copy, mark.ev-hl, mark.q-hl, mark.hl-local')) return NodeFilter.FILTER_REJECT;
     return NodeFilter.FILTER_ACCEPT;
   },
 };
@@ -247,4 +247,86 @@ export function highlightQuery(root: HTMLElement, raw: string): HTMLElement | nu
     }
   }
   return first;
+}
+
+export function queryMarkCount(root: HTMLElement): number {
+  return root.querySelectorAll('mark.q-hl').length;
+}
+
+/** 当前高亮是第几处（1-based）。没有 `.on` 时当作第 1 处。 */
+export function queryMarkPos(root: HTMLElement): { i: number; n: number } {
+  const marks = root.querySelectorAll('mark.q-hl');
+  const n = marks.length;
+  if (!n) return { i: 0, n: 0 };
+  let i = 0;
+  marks.forEach((m, k) => { if (m.classList.contains('on')) i = k + 1; });
+  return { i: i || 1, n };
+}
+
+export function cycleQueryMarks(root: HTMLElement, dir: 1 | -1): HTMLElement | null {
+  const marks = [...root.querySelectorAll<HTMLElement>('mark.q-hl')];
+  if (!marks.length) return null;
+  const i = marks.findIndex(m => m.classList.contains('on'));
+  const next = marks[(Math.max(i, 0) + dir + marks.length) % marks.length];
+  marks.forEach(m => m.classList.remove('on'));
+  next.classList.add('on');
+  return next;
+}
+
+const LOCAL_CAP = 24;
+
+const localFilter: NodeFilter = {
+  acceptNode(n) {
+    const p = (n.parentElement as HTMLElement | null);
+    if (!n.textContent?.trim()) return NodeFilter.FILTER_REJECT;
+    if (p?.closest('script, style, button, .h-copy, mark.ev-hl, mark.q-hl, mark.hl-local')) return NodeFilter.FILTER_REJECT;
+    return NodeFilter.FILTER_ACCEPT;
+  },
+};
+
+export function clearLocalHighlights(root: HTMLElement) {
+  root.querySelectorAll('mark.hl-local').forEach(m => {
+    const p = m.parentNode;
+    if (!p) return;
+    p.replaceChild(document.createTextNode(m.textContent || ''), m);
+    p.normalize();
+  });
+}
+
+/** 把本机划线短摘句画回正文。只标公开指针，不写回知识库。 */
+export function paintLocalHighlights(root: HTMLElement, items: { id: string; snippet: string }[]): number {
+  clearLocalHighlights(root);
+  let n = 0;
+  for (const it of items) {
+    if (n >= LOCAL_CAP) break;
+    const needle = (it.snippet || '').replace(/\s+/g, ' ').trim();
+    if (compact(needle).length < 2) continue;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, localFilter);
+    let node = walker.nextNode() as Text | null;
+    while (node) {
+      const hit = indexLoose(node.textContent || '', needle, 2);
+      if (hit) {
+        const text = node.textContent || '';
+        const mark = document.createElement('mark');
+        mark.className = 'hl-local';
+        mark.dataset.hlId = it.id;
+        mark.textContent = text.slice(hit.start, hit.end);
+        const rest = document.createTextNode(text.slice(hit.end));
+        node.textContent = text.slice(0, hit.start);
+        node.after(mark, rest);
+        n += 1;
+        break;
+      }
+      node = walker.nextNode() as Text | null;
+    }
+  }
+  return n;
+}
+
+export function focusLocalHighlight(root: HTMLElement, id: string): HTMLElement | null {
+  root.querySelectorAll('mark.hl-local.on').forEach(m => m.classList.remove('on', 'anchor-flash'));
+  const mark = root.querySelector(`mark.hl-local[data-hl-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+  if (!mark) return null;
+  mark.classList.add('on', 'anchor-flash');
+  return mark;
 }

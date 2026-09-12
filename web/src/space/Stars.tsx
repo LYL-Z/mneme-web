@@ -120,6 +120,7 @@ function Workbench({ overview, onOpenChapter, onOpenDoc, onEnterLighthouse }: {
       </div>
       <div className="wb-status">
         <button className="wb-chip" onClick={onEnterLighthouse}>待核工作队列 {pend.toLocaleString()} 项 →</button>
+        <button type="button" className="wb-chip" onClick={() => window.dispatchEvent(new CustomEvent('mneme:locked'))}>绝密档案 · 管理员密码 →</button>
         {snap && (
           <span className="wb-chip dim">数据快照 {snap}{overview?.docs != null ? ` · 公开层 ${overview.docs} 篇` : ''}</span>
         )}

@@ -32,17 +32,20 @@ export interface TimelineEvent {
   id: number; year: number; month: number | null; exact_date: string | null;
   stage: string; volume: string | null; kind: string; title: string;
   ref_title: string | null; detail: string | null; ref?: string | null;
+  locked?: boolean;
 }
 
 export interface Entity {
-  id: number; std_id: string; display_name: string; relation_group: string;
+  id: number; std_id?: string; display_name: string; relation_group: string;
   stage: string | null; mention_count: number; first_year: number | null; last_year: number | null;
+  locked?: boolean;
 }
 
 /** /api/graph 返回的节点（后端 SELECT 已别名字段） */
 export interface GraphNode {
   id: number; name: string; grp: string; stage: string | null; mention: number;
-  doc: string; first_year: number | null; last_year: number | null;
+  doc?: string; first_year: number | null; last_year: number | null;
+  locked?: boolean;
 }
 
 export interface GraphData {
@@ -56,8 +59,8 @@ export interface DocFull {
   id: number; path: string; title: string; domain: string; doc_type: string;
   stage: string; volume: string | null; body: string; mtime: number;
   meta: Record<string, unknown>;
-  backlinks: { path: string; title: string; domain: string }[];
-  persons: { id: number; display_name: string; relation_group: string; mention_count: number }[];
+  backlinks: { path: string; title: string; domain: string; locked?: boolean }[];
+  persons: { id: number; display_name: string; relation_group: string; mention_count: number; locked?: boolean }[];
   evidence: { kind: string; n: number }[];
   evSnippets: { id: number; kind: string; snippet: string }[];
   /* v8 · 3.3 五向互链：本文档登记的时间线事件 + 正文出现过的意象 */
@@ -67,19 +70,19 @@ export interface DocFull {
 
 export interface EntityDetail extends Entity {
   aliases: string[]; role_doc_path: string;
-  mentionDocs: { id: number; path: string; title: string; domain: string; stage: string; mtime: number; hits: number }[];
-  related: { id: number; display_name: string; relation_group: string; mention_count: number; co: number }[];
+  mentionDocs: { id: number; path: string; title: string; domain: string; stage: string; mtime: number; hits: number; locked?: boolean }[];
+  related: { id: number; display_name: string; relation_group: string; mention_count: number; co: number; locked?: boolean }[];
   evidence: { kind: string; snippet: string }[];
   selfBodyChars: number;
 }
 
 export interface SearchGroups {
-  doc?: { path: string; title: string; domain: string; stage: string; sn: string }[];
-  person?: { id: number; display_name: string; relation_group: string; stage: string; mention_count: number }[];
-  timeline?: { id: number; year: number; month: number | null; stage: string; kind: string; title: string }[];
-  imagery?: { id: number; name: string; candidate: number; occ: number }[];
-  volume?: { code: string; title: string; typ: string; doc_path?: string; seq?: number; is_sample?: number }[];
-  questionnaire?: { id: number; respondent_label: string; doc_path: string }[];
+  doc?: { path: string; title: string; domain: string; stage: string; sn?: string; snippet?: string; locked?: boolean }[];
+  person?: { id: number; display_name: string; relation_group: string; stage: string; mention_count: number; locked?: boolean }[];
+  timeline?: { id: number; year: number; month: number | null; stage: string; kind: string; title: string; locked?: boolean }[];
+  imagery?: { id: number; name: string; candidate: number; occ: number; locked?: boolean }[];
+  volume?: { code: string; title: string; typ: string; doc_path?: string; seq?: number; is_sample?: number; locked?: boolean }[];
+  questionnaire?: { id: number; respondent_label?: string; doc_path?: string; locked?: boolean }[];
 }
 
 export class NotFoundError extends Error {}
@@ -100,6 +103,26 @@ export function swr<T>(url: string): Promise<T> {
   if (hit && Date.now() - hit.t < SWR_TTL) return Promise.resolve(hit.data as T);
   const p = j<T>(url).then(data => { swrCache.set(url, { t: Date.now(), data }); return data; });
   if (hit) return p.catch(() => hit.data as T); // 刷新失败时保留旧值
+  return p;
+}
+
+export interface AdminStatus {
+  admin: boolean;
+  vault: boolean;
+  ai: boolean;
+  sync?: { watching: boolean; vault?: boolean; last?: { t: string; reason: string; code: number | null } | null; pending?: boolean };
+}
+export interface SourceDoc {
+  path: string; text: string; mtime: string | number | null;
+  sha256: string | null; writable: boolean; title: string;
+}
+
+/** 文档/实体允许 404。公开正文另可由 SW 按响应头缓存；私密/绝密不进 SW。 */
+export function swr404<T>(url: string): Promise<T | null> {
+  const hit = swrCache.get(url);
+  if (hit && Date.now() - hit.t < SWR_TTL) return Promise.resolve(hit.data as T | null);
+  const p = j404<T>(url).then(data => { swrCache.set(url, { t: Date.now(), data }); return data; });
+  if (hit) return p.catch(() => hit.data as T | null);
   return p;
 }
 
@@ -184,7 +207,7 @@ export interface ChapterDetail {
 export const headingSlug = (text: string) =>
   text.trim().replace(/\s+/g, '-').slice(0, 48) || 'section';
 
-export interface ImageryItem { id: number; name: string; seq: number; candidate: number; occ: number }
+export interface ImageryItem { id: number; name: string; seq: number; candidate: number; occ: number; locked?: boolean }
 
 export interface ImageryOcc {
   imagery_id: number; doc_id: string; volume_code: string | null;
@@ -210,20 +233,21 @@ export interface QueueItem {
   volume: string | null;
   domain: string;
   stage: string | null;
+  locked?: boolean;
 }
 
 export interface DomainDocs {
   domain: string; total: number;
-  docs: { id: number; path: string; title: string; doc_type: string; stage: string; volume: string | null; mtime: number }[];
+  docs: { id: number; path: string; title: string; doc_type: string; stage: string; volume: string | null; mtime: number; locked?: boolean }[];
   /* v3.1 主题域内容化 */
-  topPersons: { id: number; display_name: string; relation_group: string; hits: number }[];
+  topPersons: { id: number; display_name: string; relation_group: string; hits: number; locked?: boolean }[];
 }
 
 export interface ImageryOne extends ImageryItem {
   occurrences: ImageryOcc[];
   /* v3.1 博物馆内容化 */
   ledgerPath: string | null;
-  relatedImagery: { id: number; name: string; co: number }[];
+  relatedImagery: { id: number; name: string; co: number; locked?: boolean }[];
 }
 
 export const api = {
@@ -246,18 +270,50 @@ export const api = {
   entities: (limit = 400) => j<Entity[]>(`/api/entities?limit=${limit}`),
   graph: () => swr<GraphData>('/api/graph'),
   yearDensity: () => j<{ year: number; docs: number }[]>('/api/year-density'),
-  entity: (id: number) => j404<EntityDetail>(`/api/entities/${id}`),
-  doc: (path: string) => j404<DocFull>(`/api/doc/${encodeURI(path)}`),
+  entity: (id: number) => swr404<EntityDetail>(`/api/entities/${id}`),
+  doc: (path: string) => swr404<DocFull>(`/api/doc/${encodeURI(path)}`),
   search: (q: string) => j<{ groups: SearchGroups; terms: string[] }>(
     `/api/search?q=${encodeURIComponent(q)}`),
-  volumes: () => j<Volume[]>('/api/volumes'),
-  volume: (code: string) => j404<VolumeDetail>(`/api/volumes/${code}`),
-  chapter: (code: string, seq: number) => j404<ChapterDetail>(`/api/chapter/${code}/${seq}`),
-  imagery: () => j<ImageryItem[]>('/api/imagery'),
+  volumes: () => swr<Volume[]>('/api/volumes'),
+  volume: (code: string) => swr404<VolumeDetail>(`/api/volumes/${code}`),
+  chapter: (code: string, seq: number) => swr404<ChapterDetail>(`/api/chapter/${code}/${seq}`),
+  imagery: () => swr<ImageryItem[]>('/api/imagery'),
   imageryOne: (id: number) => j404<ImageryOne>(`/api/imagery/${id}`),
-  questionnaires: () => j<Questionnaire[]>('/api/questionnaires'),
+  questionnaires: () => swr<Questionnaire[]>('/api/questionnaires'),
   domains: () => j<DomainStat[]>('/api/domains'),
   domainDocs: (name: string, limit = 80, offset = 0) =>
     j<DomainDocs>(`/api/domains/${encodeURIComponent(name)}/docs?limit=${limit}&offset=${offset}`),
   queue: () => j<QueueItem[]>('/api/queue'),
+  adminStatus: () => j<AdminStatus>('/api/admin/status'),
+  adminSession: (token: string) =>
+    fetch('/api/admin/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    }).then(async r => {
+      if (r.ok) return true;
+      if (r.status === 403 || r.status === 429) return false;
+      throw new ApiError(r.status, 'admin session failed');
+    }),
+  source: (path: string) => j404<SourceDoc>(`/api/source/${encodeURI(path)}`),
+  saveSource: (path: string, text: string, mtime?: string | number | null) =>
+    fetch(`/api/source/${encodeURI(path)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, mtime }),
+    }).then(async r => {
+      if (r.status === 401) return handle401(path);
+      if (!r.ok) throw new ApiError(r.status, `${r.status} save`);
+      return r.json() as Promise<{ ok: boolean; mtime: string; sha256: string; title?: string }>;
+    }),
+  aiDraft: (body: { path: string; text: string; selection?: string; mode?: string; instruction?: string }) =>
+    fetch('/api/ai/draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(async r => {
+      if (r.status === 401) return handle401(body.path);
+      if (!r.ok) throw new ApiError(r.status, `${r.status} ai`);
+      return r.json() as Promise<{ text: string; engine: 'llm' | 'local'; mode: string }>;
+    }),
 };

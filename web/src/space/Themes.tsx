@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { animate, stagger } from 'animejs';
 import { ApiError, api, apiErrorMessage, type DomainDocs, type DomainStat } from '../api';
 import { notify } from '../toast';
+import { askUnlock } from '../unlock';
 
 /**
  * Σ5 主题域 · v7.2 充实版
@@ -164,8 +165,8 @@ export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
               <h3>域内高频人物</h3>
               <div className="study-chips">
                 {cur.topPersons.map(p => (
-                  <button key={p.id} onClick={() => onOpenPerson(p.id)} title={`${p.relation_group} · 被提及 ${p.hits} 次`}>
-                    {p.display_name}<em>{p.hits}</em>
+                  <button key={p.id} onClick={() => p.locked ? askUnlock() : onOpenPerson(p.id)} title={p.locked ? '绝密档案 · 需管理员密码' : `${p.relation_group} · 被提及 ${p.hits} 次`}>
+                    {p.display_name}{p.locked ? ' · 锁' : ''}<em>{p.hits}</em>
                   </button>
                 ))}
               </div>
@@ -220,9 +221,9 @@ export function Themes({ onOpenDoc, onOpenPerson, focusDomain, onFocusDone }: {
           <ul className="th-docs">
             {shownDocs.map(d => (
               <li key={d.path}>
-                <button onClick={() => onOpenDoc(d.path)}>
-                  <b>{d.title}</b>
-                  <span>{[d.doc_type, d.stage, d.volume].filter(Boolean).join(' · ')}</span>
+                <button onClick={() => d.locked ? askUnlock() : onOpenDoc(d.path)}>
+                  <b>{d.title}{d.locked ? ' · 锁' : ''}</b>
+                  <span>{d.locked ? '绝密档案 · 需管理员密码' : [d.doc_type, d.stage, d.volume].filter(Boolean).join(' · ')}</span>
                 </button>
               </li>
             ))}

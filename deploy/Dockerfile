@@ -2,6 +2,8 @@
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
+# 云托管请同时设 MNEME_MODE=cloud，以及四项口令/过滤（只放控制台）。
+# server 在 cloud 模式下默认 STRICT；紧急回滚设 MNEME_STRICT=0。
 
 # server 依赖（hono / @hono/node-server / pg）
 COPY server/package.json ./server/package.json

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, api, headingSlug, type ChapterDetail } from '../api';
+import { ApiError, api, headingSlug, type Chapter, type ChapterDetail } from '../api';
 import { recordChapter } from '../history';
 import { ensureCjkSerif } from '../fontsCjk';
 
@@ -19,15 +19,17 @@ type PanelState =
 
 const KIND_LABEL: Record<string, string> = { 待采: '待采', 待核: '待核' };
 
-export function ChapterPanel({ code, seq, onClose, onOpenDoc, onOpenImagery }: {
+export function ChapterPanel({ code, seq, onClose, onOpenDoc, onOpenImagery, onOpenChapter }: {
   code: string;
   seq: number;
   onClose: () => void;
   onOpenDoc: (path: string, anchor?: string) => void;
   onOpenImagery: (id: number) => void;
+  onOpenChapter: (code: string, seq: number) => void;
 }) {
   const [st, setSt] = useState<PanelState>({ s: 'loading' });
   const [retry, setRetry] = useState(0);
+  const [sibs, setSibs] = useState<Chapter[]>([]);
   const seqRef = useRef(0);
   useEffect(() => { ensureCjkSerif(); }, []);
 
@@ -38,6 +40,7 @@ export function ChapterPanel({ code, seq, onClose, onOpenDoc, onOpenImagery }: {
       if (my !== seqRef.current) return; // 过期响应丢弃
       if (d) {
         setSt({ s: 'ok', d });
+        document.title = `${d.chapter.title} · ΜΝΗΜΗ`;
         recordChapter({ code: d.chapter.code, seq: d.chapter.seq, title: d.chapter.title, volume: d.volume.name }); // 工作台轨迹
       } else setSt({ s: 'miss' });
     }).catch((e: unknown) => {
@@ -47,6 +50,9 @@ export function ChapterPanel({ code, seq, onClose, onOpenDoc, onOpenImagery }: {
       setSt(net ? { s: 'net' } : { s: 'miss' });
     });
   }, [code, seq, retry]);
+  useEffect(() => {
+    api.volume(code).then(v => setSibs((v?.chapters || []).filter(c => !c.is_sample))).catch(() => setSibs([]));
+  }, [code, retry]);
 
   /* 解锁后自动重载当前章节链 */
   useEffect(() => {
@@ -213,6 +219,18 @@ export function ChapterPanel({ code, seq, onClose, onOpenDoc, onOpenImagery }: {
               </div>
 
               <footer className="cp-foot">
+                {(() => {
+                  const i = sibs.findIndex(c => c.seq === seq);
+                  const prev = i > 0 ? sibs[i - 1] : null;
+                  const next = i >= 0 && i < sibs.length - 1 ? sibs[i + 1] : null;
+                  if (!prev && !next) return null;
+                  return (
+                    <div className="cp-sibs">
+                      {prev ? <button type="button" className="cp-sib" onClick={() => onOpenChapter(code, prev.seq)}>上一辑 · {prev.title}</button> : <span />}
+                      {next ? <button type="button" className="cp-sib" onClick={() => onOpenChapter(code, next.seq)}>下一辑 · {next.title}</button> : <span />}
+                    </div>
+                  );
+                })()}
                 <button className="cp-back" onClick={onClose}>← 回五卷书房</button>
                 <span className="cp-note">只读材料链 · Obsidian 为事实来源</span>
               </footer>

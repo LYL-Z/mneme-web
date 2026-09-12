@@ -11,6 +11,10 @@
   "background_color": "#F5F0E6",
   "theme_color": "#14120E",
   "categories": ["books", "education"],
+  "shortcuts": [
+    { "name": "原文档案馆", "short_name": "阅读", "url": "/space/archive", "description": "打开原文阅读工作台" },
+    { "name": "证据灯塔", "short_name": "灯塔", "url": "/space/lighthouse", "description": "打开待核工作队列" }
+  ],
   "icons": [
     { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },

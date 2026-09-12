@@ -11,6 +11,23 @@ export type SpaceKey = (typeof SPACE_KEYS)[number];
 /** 时间之河可分享筛选。刷新、后退、外发链接共用。 */
 export type RiverQuery = { stage?: string; kind?: string; y?: number };
 
+/** 灯塔工作队列筛选。刷新、后退、外发链接共用。 */
+export type LighthouseTab = 'all' | 'conflict' | 'pending' | 'pendingCollect';
+
+const LH_TABS = new Set<string>(['all', 'conflict', 'pending', 'pendingCollect']);
+
+export const parseLhTab = (search: string): LighthouseTab | undefined => {
+  const q = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  const tab = q.get('tab');
+  if (tab && LH_TABS.has(tab) && tab !== 'all') return tab as LighthouseTab;
+  return undefined;
+};
+
+export const lhQueryString = (tab?: LighthouseTab) => {
+  if (!tab || tab === 'all') return '';
+  return `?tab=${tab}`;
+};
+
 export const parseRiverQuery = (search: string): RiverQuery | undefined => {
   const q = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
   const p: RiverQuery = {};
@@ -34,7 +51,7 @@ export const riverQueryString = (p?: RiverQuery) => {
 };
 
 export type Route =
-  | { v: 'space'; key: SpaceKey; river?: RiverQuery }
+  | { v: 'space'; key: SpaceKey; river?: RiverQuery; lh?: LighthouseTab }
   | { v: 'doc'; path: string; h?: string; ev?: number; q?: string }
   | { v: 'person'; id: number }
   | { v: 'imagery'; id: number }
@@ -43,7 +60,7 @@ export type Route =
   | { v: 'chapter'; code: string; seq: number };
 
 export const routeId = (r: Route) =>
-  r.v === 'space' ? `space:${r.key}${r.key === 'river' ? riverQueryString(r.river) : ''}`
+  r.v === 'space' ? `space:${r.key}${r.key === 'river' ? riverQueryString(r.river) : r.key === 'lighthouse' ? lhQueryString(r.lh) : ''}`
   : r.v === 'doc' ? `doc:${r.path}${r.h ? `#${r.h}` : ''}${r.ev != null ? `~${r.ev}` : ''}${r.q ? `?${r.q}` : ''}`
   : r.v === 'person' ? `person:${r.id}`
   : r.v === 'imagery' ? `imagery:${r.id}`
@@ -110,6 +127,10 @@ export const parseLocation = (): Route => {
       const river = parseRiverQuery(location.search);
       return river ? { v: 'space', key: 'river', river } : { v: 'space', key: 'river' };
     }
+    if (tail === 'lighthouse') {
+      const lh = parseLhTab(location.search);
+      return lh ? { v: 'space', key: 'lighthouse', lh } : { v: 'space', key: 'lighthouse' };
+    }
     return { v: 'space', key: tail };
   }
   return { v: 'space', key: 'stars' };
@@ -118,6 +139,7 @@ export const parseLocation = (): Route => {
 export const routeToPath = (r: Route) => {
   if (r.v === 'space') {
     if (r.key === 'river') return `/space/river${riverQueryString(r.river)}`;
+    if (r.key === 'lighthouse') return `/space/lighthouse${lhQueryString(r.lh)}`;
     return `/space/${r.key}`;
   }
   if (r.v === 'doc') {

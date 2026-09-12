@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { animate, stagger } from 'animejs';
 import { api, apiErrorMessage, type Overview, type QueueItem } from '../api';
+import { routeToPath, type LighthouseTab } from '../route';
+import { isModifiedClick } from '../navClick';
 import { evidenceLabel as labelOf } from '../evidenceKind';
 import { rememberEvidence } from '../highlightSnippet';
 import { notify } from '../toast';
+import { askUnlock } from '../unlock';
 
 /**
  * Σ9 证据灯塔 · 事实纪律的守夜塔
@@ -11,7 +14,7 @@ import { notify } from '../toast';
  * 工作队列 = 冲突 / 待核 / 待采，点击直达原文。
  */
 
-type QueueTab = 'all' | 'conflict' | 'pending' | 'pendingCollect';
+type QueueTab = LighthouseTab;
 
 const TABS: { id: QueueTab; label: string }[] = [
   { id: 'all', label: '全部' },
@@ -20,13 +23,15 @@ const TABS: { id: QueueTab; label: string }[] = [
   { id: 'pendingCollect', label: '待采' },
 ];
 
-export function Lighthouse({ overview, onOpenDoc }: {
+export function Lighthouse({ overview, onOpenDoc, tab = 'all', onTab }: {
   overview: Overview | null;
   onOpenDoc: (path: string, h?: string, ev?: number) => void;
+  tab?: QueueTab;
+  onTab?: (t: QueueTab) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
-  const [tab, setTab] = useState<QueueTab>('all');
+  const setTab = (t: QueueTab) => onTab?.(t);
   const audit = overview?.audit ?? null;
   const ev = overview?.evidence ?? [];
   const evTotal = ev.reduce((s, e) => s + e.n, 0);
@@ -126,19 +131,23 @@ export function Lighthouse({ overview, onOpenDoc }: {
           const lb = labelOf(item.kind);
           const snip = (item.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 140);
           return (
-            <button
+            <a
               key={item.id}
+              href={routeToPath({ v: 'doc', path: item.path, ev: item.id })}
               className="lh-q-item surface"
-              onClick={() => {
+              onClick={e => {
+                if (isModifiedClick(e)) return;
+                e.preventDefault();
+                if (item.locked) { askUnlock(); return; }
                 rememberEvidence(item.id, item.snippet);
                 onOpenDoc(item.path, undefined, item.id);
               }}
               title={item.path}
             >
-              <b>{item.title}</b>
+              <b>{item.title}{item.locked ? ' · 锁' : ''}</b>
               {snip ? <span>{snip}{item.snippet.length > 140 ? '…' : ''}</span> : null}
               <em>{[lb.name, item.domain, item.stage, item.volume].filter(Boolean).join(' · ')}</em>
-            </button>
+            </a>
           );
         })}
       </section>

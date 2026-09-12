@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { animate, stagger } from 'animejs';
 import { ApiError, api, apiErrorMessage, type Volume, type VolumeDetail } from '../api';
 import { notify } from '../toast';
+import { getLastChapter } from '../history';
 
 /** 卷详情证据标签的中文映射（与 Σ9 灯塔同口径） */
 const EV_LABEL: Record<string, string> = {
@@ -70,6 +71,7 @@ export function Study({ onOpenDoc, onOpenPerson, onOpenImagery, onOpenChapter, f
   const [vols, setVols] = useState<Volume[]>([]);
   const [cur, setCur] = useState<VolumeDetail | null>(null);
   const [docsOpen, setDocsOpen] = useState(false);
+  const lastCh = getLastChapter();
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { api.volumes().then(setVols).catch(e => notify(apiErrorMessage(e), 'error')); }, []);
@@ -211,20 +213,23 @@ export function Study({ onOpenDoc, onOpenPerson, onOpenImagery, onOpenChapter, f
           )}
 
           <ol className="study-chapters">
-            {cur.chapters.map(c => (
-              <li key={`${c.volume_code}-${c.seq}`} className={c.is_sample ? 'sample' : ''}>
+            {cur.chapters.map(c => {
+              const isLast = !!(lastCh && lastCh.code === c.volume_code && lastCh.seq === c.seq);
+              return (
+              <li key={`${c.volume_code}-${c.seq}`} className={`${c.is_sample ? 'sample' : ''}${isLast ? ' last' : ''}`}>
                 <i>{String(c.seq).padStart(2, '0')}</i>
                 <button
-                  className="study-chap"
+                  className={`study-chap${isLast ? ' last' : ''}`}
                   onClick={() => onOpenChapter(c.volume_code, c.seq)}
-                  title="打开章节材料链：提纲 · 正文 · 支撑材料 · 待核队列"
+                  title={isLast ? '上次读到这里 · 打开材料链' : '打开章节材料链：提纲 · 正文 · 支撑材料 · 待核队列'}
                 >
                   <span>{c.title}</span>
                   {c.est_words && <em>{c.est_words}</em>}
-                  <em className="study-chap-sec">{c.status || ''} · 材料链 →</em>
+                  <em className="study-chap-sec">{isLast ? '续读 · 材料链 →' : `${c.status || ''} · 材料链 →`}</em>
                 </button>
               </li>
-            ))}
+              );
+            })}
           </ol>
         </section>
       )}

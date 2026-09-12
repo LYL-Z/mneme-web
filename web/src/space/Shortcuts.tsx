@@ -35,9 +35,19 @@ const ROWS: { keys: string; name: string }[] = [
   { keys: '/', name: '检索全库' },
   { keys: '⌘K', name: '检索全库' },
   { keys: '?', name: '本面板' },
-  { keys: 'Esc', name: '关闭浮层' },
+  { keys: 'Esc', name: '关闭浮层；写作台未写回则先确认' },
   { keys: 'j', name: '向下滚动' },
   { keys: 'k', name: '向上滚动' },
+  { keys: '[ / ]', name: '反链或最近材料 · 上一篇 / 下一篇' },
+  { keys: 'f / ⌘F', name: '本篇查找（原文）' },
+  { keys: '← / →', name: '放大图上一张 / 下一张' },
+  { keys: 'n / N', name: '下一处 / 上一处检索标' },
+  { keys: 'c', name: '复制深链（有选区则带摘句）' },
+  { keys: 't / i / d / a', name: '原文：目录 / 检查器 / 对照 / Aa' },
+  { keys: 'e', name: '编辑本篇' },
+  { keys: '⌘S', name: '写作台写回知识库' },
+  { keys: 'Tab', name: '写作台缩进' },
+  { keys: '⌘Enter', name: '写作台插入代写稿' },
 ];
 
 export function ShortcutsHelp({ open, onClose }: { open: boolean; onClose: () => void }) {

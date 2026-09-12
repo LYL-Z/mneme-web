@@ -5,11 +5,15 @@ import ErrorBoundary from './ErrorBoundary';
 import Toaster from './Toaster';
 import { watchVitals } from './vitals';
 import { maybeWarmCjkSerif } from './fontsCjk';
+import { bootDevice } from './device';
 import latinSerif from '@fontsource/noto-serif-sc/files/noto-serif-sc-latin-400-normal.woff2?url';
 import './styles/fonts.css';
 import './styles/tokens.css';
 import './styles/liquid-glass.css';
 import './styles/app.css';
+import './styles/devices.css';
+
+bootDevice();
 
 const preloadFont = (href: string) => {
   const l = document.createElement('link');

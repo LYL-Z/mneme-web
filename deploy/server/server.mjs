@@ -7,14 +7,15 @@
  *   · 三级可见性（判定唯一事实来源 = ./privacy.mjs）：
  *       public  → 正常返回
  *       private → 未解锁一律 404（与「不存在」不可区分，不可枚举）
- *       secret  → 未解锁一律 403（绝密人物全宗 / 卷二卷三 / 非父母卷问卷作答全文）
+ *       secret  → 列表/星图/检索以锁定档出现；点开正文一律 403（管理员密码）
  *   · 所有只读出口都从 store 层取「已按解锁状态过滤」的数据，server 层再做一次出口净化
  *   · 绝密门 /api/secret/unlock 与主登录共用失败退避（5 次/分钟/IP）
  *   · 安全响应头：CSP（强制，可用 MNEME_CSP_REPORT_ONLY=1 一键回退观察模式）、nosniff、no-referrer 等
  *
  * 启动：node server.mjs
  * 环境变量：MNEME_TOKEN / MNEME_ADMIN_TOKEN / MNEME_SECRET / PORT / MNEME_MODE=cloud
- *           MNEME_STRICT=1（生产建议：缺失口令即拒绝启动）
+ *           MNEME_STRICT=1（强制：缺失或仍为内置开发口令则拒绝启动）
+ *           云模式（MNEME_MODE=cloud）默认等同 STRICT；回滚设 MNEME_STRICT=0
  *           MNEME_LOG=0（关闭请求日志）/ MNEME_BUILD=<hash>（/api/health 回显构建版本）
  */
 import { serve } from '@hono/node-server';
@@ -29,6 +30,9 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 /* 隐私门禁规则的唯一事实来源（server / store / store-pg 共用，禁止各写一套） */
 import { SECRET_NAME, SECRET_VOLUMES, LOCAL_PRIVACY, isPrivatePath, isSecretText, isSecretPath, isQuestionnaireEntity, mustHideEntity } from './privacy.mjs';
+import { vaultReady, normRel, writeClass, readSource, writeSource, bodyFromRaw, titleFromRaw } from './vault.mjs';
+import { llmDraft, hasLlm } from './ai-draft.mjs';
+import { startVaultWatch, requestIngest, syncStatus } from './sync-watch.mjs';
 
 /* M7：MNEME_PG 存在时切 CloudBase PG 适配器（同接口），否则用本地 SQLite */
 const store = await (process.env.MNEME_PG ? import('./store-pg.mjs') : import('./store.mjs'));
@@ -52,26 +56,32 @@ if (WEB_DIST === SITE_DIR) {
   } catch { /* 任一缺失不必告警 */ }
 }
 const PORT = +(process.env.PORT || 8421);
-const TOKEN = process.env.MNEME_TOKEN || 'mneme';
-const ADMIN_TOKEN = process.env.MNEME_ADMIN_TOKEN || 'mneme-admin';
+const VISITOR_DEV = 'mneme';
+const ADMIN_DEV = 'mneme-admin';
+const TOKEN = process.env.MNEME_TOKEN || VISITOR_DEV;
+const ADMIN_TOKEN = process.env.MNEME_ADMIN_TOKEN || ADMIN_DEV;
 const CLOUD = process.env.MNEME_MODE === 'cloud';
-const STRICT = process.env.MNEME_STRICT === '1';
+/* 云端默认 STRICT：口令必须来自环境且不得等于内置开发值。本机开发不受影响。回滚：MNEME_STRICT=0 */
+const STRICT = process.env.MNEME_STRICT === '1' || (CLOUD && process.env.MNEME_STRICT !== '0');
 const BUILD = process.env.MNEME_BUILD || 'dev';
 const LOG_ON = process.env.MNEME_LOG !== '0';
 const KEY = crypto.createHash('sha256').update(`mneme:${TOKEN}`).digest('hex').slice(0, 32);
 
-/* 口令默认值告警：默认值仅用于本地开发；生产请设置环境变量（MNEME_STRICT=1 可强制） */
 const DEFAULTS_IN_USE = [
-  !process.env.MNEME_TOKEN && 'MNEME_TOKEN',
-  !process.env.MNEME_ADMIN_TOKEN && 'MNEME_ADMIN_TOKEN',
+  (!process.env.MNEME_TOKEN || process.env.MNEME_TOKEN === VISITOR_DEV) && 'MNEME_TOKEN',
+  (!process.env.MNEME_ADMIN_TOKEN || process.env.MNEME_ADMIN_TOKEN === ADMIN_DEV) && 'MNEME_ADMIN_TOKEN',
   !process.env.MNEME_SECRET && !LOCAL_PRIVACY.secretPassword && 'MNEME_SECRET',
 ].filter(Boolean);
-if (DEFAULTS_IN_USE.length) {
-  const msg = `[安全告警] 以下口令正在使用内置默认值：${DEFAULTS_IN_USE.join(' / ')}。生产环境请在环境变量中显式设置。`;
-  if (STRICT) { console.error(`${msg}\nMNEME_STRICT=1 已开启，拒绝启动。`); process.exit(1); }
+const SECRET_NAME_MISSING = !SECRET_NAME;
+if (DEFAULTS_IN_USE.length || (STRICT && SECRET_NAME_MISSING)) {
+  const bits = [...DEFAULTS_IN_USE, STRICT && SECRET_NAME_MISSING ? 'MNEME_SECRET_NAME' : ''].filter(Boolean);
+  const msg = `[安全告警] 以下口令/过滤仍是内置开发值或未设置：${bits.join(' / ')}。生产请只在托管平台环境变量覆盖。`;
+  if (STRICT) { console.error(`${msg}\nSTRICT 已开启，拒绝启动。回滚请设 MNEME_STRICT=0。`); process.exit(1); }
   console.warn(msg);
+} else if (CLOUD) {
+  console.log('[安全] 云端 STRICT 已开：口令与绝密姓名过滤均来自环境，不是内置开发值。');
 }
-if (!SECRET_NAME) console.warn('[安全告警] 未配置绝密姓名过滤（MNEME_SECRET_NAME 或 privacy.local.json）。');
+if (!STRICT && SECRET_NAME_MISSING) console.warn('[安全告警] 未配置绝密姓名过滤（MNEME_SECRET_NAME 或 privacy.local.json）。');
 
 /* ---------- 绝密档案门禁（绝密人物全宗 + 卷二卷三 + 非父母卷问卷） ----------
    密码只有库主本人持有；服务端校验后下发 HttpOnly cookie，前端不落明文。
@@ -82,6 +92,14 @@ const SECRET_TOKEN = SECRET_PASSWORD
   ? crypto.createHash('sha256').update(`mneme-secret:${SECRET_PASSWORD}`).digest('hex').slice(0, 32)
   : '';
 const isUnlocked = (c) => !!SECRET_TOKEN && getCookie(c, SECRET_COOKIE) === SECRET_TOKEN;
+const ADMIN_COOKIE = 'mneme_a';
+const ADMIN_KEY = crypto.createHash('sha256').update(`mneme-admin:${ADMIN_TOKEN}`).digest('hex').slice(0, 32);
+const isAdmin = (c) => {
+  if (getCookie(c, ADMIN_COOKIE) === ADMIN_KEY) return true;
+  if ((c.req.header('x-admin-token') || '') === ADMIN_TOKEN) return true;
+  const bearer = (c.req.header('authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  return bearer === ADMIN_TOKEN;
+};
 const locked = (c) => c.json({ error: 'locked', message: '此为绝密档案，需输入管理员密码' }, 403);
 const notFound = (c) => c.json({ error: 'not found' }, 404);
 
@@ -116,6 +134,8 @@ app.use('*', async (c, next) => {
   c.header('Referrer-Policy', 'no-referrer');
   c.header('X-Frame-Options', 'SAMEORIGIN');
   c.header('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=()');
+  c.header('Cross-Origin-Opener-Policy', 'same-origin');
+  c.header('X-DNS-Prefetch-Control', 'off');
   /* CSP 默认强制；MNEME_CSP_REPORT_ONLY=1 可一键回退为观察模式（应急回滚用） */
   c.header(process.env.MNEME_CSP_REPORT_ONLY === '1' ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy', CSP);
   if (c.req.path === '/sw.js' || c.req.path === '/offline.html') c.header('Cache-Control', 'no-cache');
@@ -217,9 +237,14 @@ app.post('/api/login', async (c) => {
 app.get('/api/logout', (c) => {
   deleteCookie(c, 'mneme_k', { path: '/' });
   deleteCookie(c, SECRET_COOKIE, { path: '/' });
+  deleteCookie(c, ADMIN_COOKIE, { path: '/' });
   return c.redirect('/');
 });
-app.get('/api/health', (c) => c.json({ ok: true, service: 'mneme', mode: CLOUD ? 'cloud' : 'local', pg: !!process.env.MNEME_PG, build: BUILD }));
+app.get('/api/health', (c) => c.json({
+  ok: true, service: 'mneme', mode: CLOUD ? 'cloud' : 'local', pg: !!process.env.MNEME_PG, build: BUILD,
+  strict: STRICT,
+  write: { vault: vaultReady() && !CLOUD, watch: syncStatus().watching, ai: hasLlm() },
+}));
 
 /* ---------- 只读 API ---------- */
 /* v4 · A5 问卷回收总数：单一事实来源移到服务端（前端不再硬编码「103+」）。
@@ -322,7 +347,110 @@ app.get('/api/doc/*', (c) => {
   if (!d) return notFound(c);
   if (d.private) return notFound(c);   // 私密层：404，不可枚举
   if (d.locked) return locked(c);      // 绝密档案：403，提示解锁
+  const cls = writeClass(normRel(raw) || d.path || '');
+  c.header('X-Mneme-Cache', cls === 'public' ? 'public' : 'no');
   return c.json(d);
+});
+
+const sourceGate = (c, rawPath) => {
+  const rel = normRel(rawPath);
+  if (!rel || rel.includes('..')) return { err: notFound(c) };
+  const cls = writeClass(rel);
+  if (cls === 'private') return { err: notFound(c) };
+  const d = store.doc(rel, { force: isUnlocked(c) });
+  if (d?.private || (!d && cls === 'private')) return { err: notFound(c) };
+  if (d?.locked && !isUnlocked(c)) return { err: locked(c) };
+  if (!d && cls === 'secret' && !isUnlocked(c)) return { err: locked(c) };
+  return { rel, doc: d };
+};
+
+app.get('/api/source/*', (c) => {
+  const g = sourceGate(c, c.req.path.replace(/^\/api\/source\//, ''));
+  if (g.err) return g.err;
+  const file = vaultReady() ? readSource(g.rel) : null;
+  const text = file?.text ?? g.doc?.body ?? '';
+  if (!file && !g.doc) return notFound(c);
+  return c.json({
+    path: file?.path || g.doc?.path || g.rel,
+    text,
+    mtime: file?.mtime || g.doc?.mtime || null,
+    sha256: file?.sha256 || null,
+    writable: isAdmin(c) && vaultReady() && !CLOUD && writeClass(g.rel) !== 'private',
+    title: g.doc?.title || titleFromRaw(text, g.rel),
+  });
+});
+
+app.put('/api/source/*', async (c) => {
+  if (CLOUD) return c.json({ error: 'vault stays local' }, 501);
+  if (!isAdmin(c)) return c.json({ error: 'forbidden' }, 403);
+  if (!vaultReady()) return c.json({ error: 'vault missing' }, 503);
+  const g = sourceGate(c, c.req.path.replace(/^\/api\/source\//, ''));
+  if (g.err) return g.err;
+  if (writeClass(g.rel) === 'private') return notFound(c);
+  const body = await c.req.json().catch(() => ({}));
+  const text = typeof body.text === 'string' ? body.text : '';
+  const cur = readSource(g.rel);
+  if (body.mtime && cur?.mtime && body.mtime !== cur.mtime) {
+    return c.json({ error: 'conflict', mtime: cur.mtime }, 409);
+  }
+  if (!cur && !g.doc) return notFound(c);
+  let saved;
+  try { saved = writeSource(g.rel, text); }
+  catch { return c.json({ error: 'write failed' }, 500); }
+  if (!saved) return c.json({ error: 'write failed' }, 500);
+  if (typeof store.patchDocumentText === 'function') {
+    store.patchDocumentText(saved.path, {
+      raw: saved.text,
+      body: bodyFromRaw(saved.text),
+      sha256: saved.sha256,
+      mtime: saved.mtime,
+      title: titleFromRaw(saved.text, g.doc?.title || ''),
+    });
+  }
+  requestIngest('save');
+  return c.json({ ok: true, ...saved, title: titleFromRaw(saved.text, g.doc?.title || '') });
+});
+
+app.post('/api/admin/session', async (c) => {
+  const ip = clientIp(c);
+  if (!loginGate(ip)) return c.json({ error: 'too many attempts' }, 429);
+  const { token } = await c.req.json().catch(() => ({}));
+  if (token !== ADMIN_TOKEN) { loginFail(ip); return c.json({ error: 'bad token' }, 403); }
+  loginFails.delete(ip);
+  setCookie(c, ADMIN_COOKIE, ADMIN_KEY, cookieOpts(c));
+  return c.json({ ok: true, admin: true });
+});
+app.get('/api/admin/status', (c) => c.json({
+  admin: isAdmin(c),
+  vault: vaultReady() && !CLOUD,
+  ai: hasLlm(),
+  sync: syncStatus(),
+}));
+
+app.post('/api/ai/draft', async (c) => {
+  if (!isAdmin(c)) return c.json({ error: 'forbidden' }, 403);
+  const body = await c.req.json().catch(() => ({}));
+  const rel = normRel(body.path || '');
+  if (!rel) return c.json({ error: 'bad path' }, 400);
+  const g = sourceGate(c, rel);
+  if (g.err) return g.err;
+  const file = vaultReady() ? readSource(rel) : null;
+  const text = typeof body.text === 'string' ? body.text : (file?.text || g.doc?.body || '');
+  const selection = typeof body.selection === 'string' ? body.selection : '';
+  const instruction = typeof body.instruction === 'string' ? body.instruction : '';
+  const mode = ['continue', 'polish', 'expand'].includes(body.mode) ? body.mode : 'continue';
+  const out = await llmDraft({
+    text, selection, instruction, mode,
+    title: g.doc?.title || titleFromRaw(text, rel),
+  });
+  return c.json({ ...out, mode, local: out.engine === 'local' });
+});
+
+app.post('/api/admin/ingest', (c) => {
+  if (!isAdmin(c)) return c.json({ error: 'forbidden' }, 403);
+  if (CLOUD) return c.json({ error: 'rescan unavailable in cloud mode (vault stays local)' }, 501);
+  requestIngest('manual');
+  return c.json({ started: true, ...syncStatus() });
 });
 
 /* 检索 */
@@ -373,6 +501,7 @@ app.onError((err, c) => {
   return c.json({ error: 'internal error', ...(process.env.MNEME_DEBUG ? { msg: String(err?.message || ''), where: String(err?.stack || '').slice(0, 200) } : {}) }, 500);
 });
 
+startVaultWatch();
 serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, (info) => {
-  console.log(`ΜΝΗΜΗ API · http://127.0.0.1:${info.port} · mode=${CLOUD ? 'cloud' : 'local'} · build=${BUILD} · token=${process.env.MNEME_TOKEN ? '(env)' : 'mneme(默认)'}`);
+  console.log(`ΜΝΗΜΗ API · http://127.0.0.1:${info.port} · mode=${CLOUD ? 'cloud' : 'local'} · build=${BUILD} · strict=${STRICT ? 'on' : 'off'} · token=${process.env.MNEME_TOKEN ? '(env)' : '(builtin)'}`);
 });

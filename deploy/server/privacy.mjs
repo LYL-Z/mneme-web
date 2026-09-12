@@ -8,7 +8,8 @@
  * 三级可见性：
  *   public   公开层
  *   private  私密层（私人资料/ 隐私/）：未解锁时一律「不存在」→ 404，不可枚举
- *   secret   绝密档案（绝密人物全宗 + 卷二/卷三 + 非父母卷问卷）：未解锁时 → 403（提示需解锁）
+ *   secret   绝密档案（绝密人物全宗 + 卷二/卷三 + 非父母卷问卷）：
+ *            未解锁时列表/星图/检索以锁定档出现（可见姓名/标题，不见正文）；点开 → 403（管理员密码）
  *
  * 绝密姓名 / 口令不进仓库：优先环境变量，其次本目录 gitignore 的 privacy.local.json。
  */
@@ -52,9 +53,20 @@ export const isQuestionnaireEntity = (e) => {
   if (!refs.some(v => v.includes(QUESTIONNAIRE_MARK))) return false;
   return !refs.some(v => [...PARENT_LABELS].some(l => v.startsWith(l)));
 };
-/** 统一出口判定：未解锁时该实体是否必须从任何列表中消失 */
+/** 统一出口判定：未解锁时该实体是否必须从任何列表中消失。
+ *  绝密人物不再消失——以锁定档出现，点开再走管理员密码。私密层与非父母卷问卷仍不可枚举。 */
 export const mustHideEntity = (e, unlocked) =>
-  !unlocked && (isPrivateEntity(e) || isSecretEntity(e) || isQuestionnaireEntity(e));
+  !unlocked && (isPrivateEntity(e) || isQuestionnaireEntity(e));
+
+/** 列表/检索命中是否应标成锁定档（可见标题，不见正文）。
+ *  时间线事件带 year+kind：只按姓名锁定，不因 volume=V2/V3 把整条河上锁。
+ *  文档/卷章仍按卷二卷三整档锁定。 */
+export const isLockedStub = (r = {}) => {
+  if (isSecretPath(r.path || r.doc_path || r.doc || '')) return true;
+  if (isSecretText(r.title) || isSecretText(r.display_name) || isSecretText(r.name)) return true;
+  if (r.year != null && r.kind) return false;
+  return SECRET_VOLUMES.includes(String(r.volume || r.code || ''));
+};
 
 /** 未解锁时用于 SQL 的实体过滤片段（t 为表别名，如 'e' 或 'e.'，均兼容）。配套参数见 ENTITY_GUARD_PARAMS。 */
 export const entityGuardSql = (t = '') => {
@@ -63,50 +75,33 @@ export const entityGuardSql = (t = '') => {
   const parent = [...PARENT_LABELS].map(l => `COALESCE(${p}display_name,'') LIKE '${l}%'`).join(' OR ');
   return ` AND COALESCE(${p}std_id,'') NOT LIKE '%私人资料%' AND COALESCE(${p}std_id,'') NOT LIKE '%隐私%'`
     + ` AND COALESCE(${p}role_doc_path,'') NOT LIKE '%私人资料%' AND COALESCE(${p}role_doc_path,'') NOT LIKE '%隐私%'`
-    + (SECRET_NAME ? ` AND COALESCE(${p}display_name,'') NOT LIKE ?` : '')
     + ` AND (COALESCE(${p}display_name,'') NOT LIKE '%${QUESTIONNAIRE_MARK}%' OR ${parent})`
     + ` AND (COALESCE(${p}role_doc_path,'') NOT LIKE '%${QUESTIONNAIRE_MARK}%' OR ${parent})`;
 };
-export const ENTITY_GUARD_PARAMS = SECRET_NAME ? [`%${SECRET_NAME}%`] : [];
+export const ENTITY_GUARD_PARAMS = [];
 
 /** 未解锁时用于 SQL 的文档过滤片段（t 为表别名前缀）。无占位符，可直接内联。 */
 export const docGuardSql = (t = '') => {
   const p = t ? `${t}.` : '';
-  const V = SECRET_VOLUMES.map(v => `'${v}'`).join(',');
-  const name = SECRET_NAME ? sqlLit(SECRET_NAME) : '';
   return ` AND ${p}is_private=0 AND ${p}path NOT LIKE '%${QUESTIONNAIRE_MARK}%'`
-    + (name ? ` AND COALESCE(${p}title,'') NOT LIKE '%${name}%' AND COALESCE(${p}path,'') NOT LIKE '%${name}%'` : '')
-    + ` AND COALESCE(${p}volume,'') NOT IN (${V})`
     + ` AND COALESCE(${p}path,'') NOT LIKE '%私人资料%' AND COALESCE(${p}path,'') NOT LIKE '%隐私%'`;
 };
 
 /** 未解锁时用于 SQL 的时间线过滤片段（t 为表别名前缀） */
-export const timelineGuardSql = (t = '') => {
-  const p = t ? `${t}.` : '';
-  const V = SECRET_VOLUMES.map(v => `'${v}'`).join(',');
-  const name = SECRET_NAME ? sqlLit(SECRET_NAME) : '';
-  return ` AND COALESCE(${p}volume,'') NOT IN (${V})`
-    + (name ? ` AND COALESCE(${p}title,'') NOT LIKE '%${name}%'` : '');
-};
+export const timelineGuardSql = (_t = '') => '';
 
 /** 未解锁时用于 SQL 的章节过滤片段（doc_path 落在私密层或标题点名绝密者剔除） */
-export const chapterGuardSql = () => {
-  const name = SECRET_NAME ? sqlLit(SECRET_NAME) : '';
-  return ` AND COALESCE(doc_path,'') NOT LIKE '%私人资料%' AND COALESCE(doc_path,'') NOT LIKE '%隐私%'`
-    + (name ? ` AND COALESCE(title,'') NOT LIKE '%${name}%'` : '');
-};
+export const chapterGuardSql = () =>
+  ` AND COALESCE(doc_path,'') NOT LIKE '%私人资料%' AND COALESCE(doc_path,'') NOT LIKE '%隐私%'`;
 
 /** 未解锁时用于 SQL 的意象过滤片段 */
-export const imageryGuardSql = () => {
-  const name = SECRET_NAME ? sqlLit(SECRET_NAME) : '';
-  return name ? ` AND COALESCE(name,'') NOT LIKE '%${name}%'` : '';
-};
+export const imageryGuardSql = () => '';
 
 /** 未解锁时用于 SQL 的问卷过滤片段（只留父母卷） */
 export const questionnaireGuardSql = () => ` AND respondent_label IN ('母亲','父亲','爸爸','妈妈')`;
 
 const META_BAD = new RegExp(
-  ['私人资料', '隐私\\/', '问卷作答全文', SECRET_NAME && escapeRe(SECRET_NAME)].filter(Boolean).join('|'),
+  ['私人资料', '隐私\\/', '问卷作答全文'].join('|'),
 );
 /** 元数据脱敏：公开文档的 frontmatter（related/persons/themes 等）里可能引用私密或绝密路径，
  *  未解锁时递归剔除这些字符串——否则「正文锁住了、元数据把路径漏出去」。
@@ -146,12 +141,13 @@ export const sanitizeGroups = (groups, unlocked) => {
   for (const k of Object.keys(groups)) {
     groups[k] = (groups[k] || []).filter(r => {
       const p = r.path || r.doc_path || r.std_id || '';
-      return !isPrivatePath(p) && !isSecretPath(p)
-        && !isSecretText(r.title) && !isSecretText(r.display_name) && !isSecretText(r.name);
+      return !isPrivatePath(p);
     }).map(r => {
       const o = { ...r };
-      for (const f of ['sn', 'snippet']) {
-        if (typeof o[f] === 'string' && SECRET_NAME) o[f] = o[f].split(SECRET_NAME).join('〔已隔离〕');
+      if (isLockedStub(o)) {
+        o.locked = true;
+        o.sn = '';
+        o.snippet = '';
       }
       return o;
     });

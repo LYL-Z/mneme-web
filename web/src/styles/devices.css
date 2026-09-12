@@ -1,0 +1,244 @@
+/* ============================================================
+   三壳 × 多系统：手机 / 平板 / 电脑
+   系统钩子：鸿蒙（优先）/ iOS / Android / Windows / macOS
+   html[data-shell][data-os][data-orient][data-pointer][data-display]
+   ============================================================ */
+
+html, body, #root {
+  height: 100%;
+  height: 100dvh;
+  height: var(--vvh, 100dvh);
+}
+html[data-shell] {
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+}
+
+/* 鸿蒙本机字体：手机 / 平板 / 电脑都走 HarmonyOS Sans */
+html[data-os="harmony"] {
+  --sans: "HarmonyOS Sans SC", "HarmonyOS Sans", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+html[data-os="ios"] {
+  --sans: "PingFang SC", "SF Pro Text", "Noto Sans SC", sans-serif;
+}
+html[data-os="android"] {
+  --sans: "Noto Sans SC", "Source Han Sans SC", Roboto, sans-serif;
+}
+html[data-os="windows"] {
+  --sans: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+}
+html[data-os="mac"] {
+  --sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+}
+
+html[data-os="harmony"] .space-host,
+html[data-os="harmony"] .ar-pane,
+html[data-os="android"] .space-host,
+html[data-os="ios"] .space-host {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 触点粗：所有可点控件至少 44px，防鸿蒙 / iOS 误触 */
+html[data-pointer="coarse"] .rail-space,
+html[data-pointer="coarse"] .rail-tab,
+html[data-pointer="coarse"] .more-item,
+html[data-pointer="coarse"] .ar-tool,
+html[data-pointer="coarse"] .top-search,
+html[data-pointer="coarse"] .nav-logout,
+html[data-pointer="coarse"] .top-vault {
+  min-height: 44px;
+}
+html[data-pointer="coarse"] input,
+html[data-pointer="coarse"] textarea,
+html[data-pointer="coarse"] select {
+  font-size: 16px;
+}
+
+/* 主屏 / 独立窗口：刘海与底条 */
+html[data-display="standalone"] .topbar {
+  padding-top: var(--safe-t);
+  height: calc(var(--top-h) + var(--safe-t));
+}
+
+/* ---------- 手机壳：底栏四键；横屏也走这套，不因宽度 >720 跳回左栏 ---------- */
+html[data-shell="phone"] .desk {
+  grid-template-columns: 1fr;
+  grid-template-rows: calc(var(--top-h) + var(--safe-t)) minmax(0, 1fr) calc(var(--phone-bar, 58px) + var(--safe-b));
+  height: var(--vvh, 100dvh);
+}
+html[data-shell="phone"] .rail {
+  grid-row: 3; grid-column: 1;
+  flex-direction: row; align-items: stretch;
+  overflow: hidden;
+  border-right: none; border-top: 1px solid var(--glass-border);
+  padding: 0 calc(6px + var(--safe-l)) var(--safe-b) calc(6px + var(--safe-r));
+}
+html[data-shell="phone"] .rail-desk { display: none; }
+html[data-shell="phone"] .rail-tabs {
+  display: flex; width: 100%; height: 100%;
+  align-items: stretch;
+}
+html[data-shell="phone"] .rail-tab {
+  flex: 1; min-width: 0;
+  border: none; background: transparent;
+  font: inherit; font-size: var(--fs-r); letter-spacing: 0.08em;
+  color: var(--ink-soft); text-decoration: none;
+  display: flex; align-items: center; justify-content: center;
+}
+html[data-shell="phone"] .rail-tab.on { color: var(--aegean); font-weight: 600; }
+html[data-shell="phone"] .topbar { grid-column: 1; grid-row: 1; }
+html[data-shell="phone"] .space-host { grid-column: 1; grid-row: 2; }
+html[data-shell="phone"] .topbar {
+  padding-left: calc(12px + var(--safe-l));
+  padding-right: calc(10px + var(--safe-r));
+}
+html[data-shell="phone"] .top-search kbd,
+html[data-shell="phone"] .top-keys { display: none; }
+html[data-shell="phone"] .toc-hint,
+html[data-shell="phone"] .ck-hint { display: none; }
+html[data-shell="phone"] .ck-mask { padding-top: 8vh; align-items: flex-start; }
+html[data-shell="phone"] .pref-hint {
+  display: inline-flex;
+  top: calc(var(--top-h) + var(--safe-t) + 8px);
+  right: calc(10px + var(--safe-r));
+  padding: 7px 12px;
+}
+html[data-shell="phone"] .bgm {
+  display: flex;
+  right: calc(10px + var(--safe-r));
+  bottom: calc(var(--phone-bar, 58px) + var(--safe-b) + 10px);
+}
+html[data-shell="phone"] .g-pending { bottom: calc(var(--phone-bar, 58px) + var(--safe-b) + 14px); }
+html[data-shell="phone"] .rest-toast { bottom: calc(var(--phone-bar, 58px) + var(--safe-b) + 18px); }
+html[data-shell="phone"] .toast-stack { bottom: calc(var(--phone-bar, 58px) + var(--safe-b) + 12px); }
+html[data-shell="phone"] .space-host {
+  padding-bottom: 8px;
+}
+html[data-shell="phone"] .ar,
+html[data-shell="phone"] .study,
+html[data-shell="phone"] .mu,
+html[data-shell="phone"] .vo,
+html[data-shell="phone"] .th {
+  padding-left: 16px; padding-right: 16px;
+}
+html[data-shell="phone"] .ar-head { flex-direction: column; align-items: flex-start; gap: 10px; }
+html[data-shell="phone"] .ar-body { padding: 22px 20px 34px; }
+html[data-shell="phone"] .ar-panes.dual { grid-template-columns: minmax(0, 1fr); }
+html[data-shell="phone"] .wb-main { grid-template-columns: minmax(0, 1fr); }
+html[data-shell="phone"] .monument-grid { grid-template-columns: repeat(2, 1fr); }
+html[data-shell="phone"] .more-mask {
+  display: flex; align-items: flex-end;
+  padding-bottom: 0;
+}
+html[data-shell="phone"] .more-sheet {
+  width: 100%;
+  max-height: min(72vh, calc(var(--vvh, 100dvh) - 80px));
+  padding-bottom: calc(16px + var(--safe-b));
+}
+html[data-shell="phone"] .nav-theme,
+html[data-pointer="coarse"] .nav-theme,
+html[data-pointer="coarse"] .top-keys,
+html[data-pointer="coarse"] .top-copy,
+html[data-pointer="coarse"] .top-vault,
+html[data-pointer="coarse"] .bgm-btn {
+  min-width: 44px; min-height: 44px;
+}
+html[data-shell="phone"] .top-search {
+  max-width: none; height: 40px; min-height: 40px;
+}
+html[data-shell="phone"] .topbar-actions { gap: 4px; }
+html[data-shell="phone"] .pref-hint .greek { display: none; }
+html[data-shell="phone"] .pref-mask {
+  align-items: flex-end; padding: 0;
+}
+html[data-shell="phone"] .pref {
+  width: 100%;
+  max-height: min(88vh, calc(var(--vvh, 100dvh) - var(--safe-t)));
+  border-radius: 18px 18px 0 0;
+  padding-bottom: calc(20px + var(--safe-b));
+}
+html[data-shell="phone"] .st { padding: 18px 18px 70px; }
+html[data-shell="phone"] .st-orbitry { width: min(240px, 70vw); height: min(240px, 70vw); }
+html[data-shell="phone"] .gp-legend {
+  bottom: calc(12px + var(--phone-bar, 58px) + var(--safe-b));
+}
+html[data-shell="phone"] .gp-roster {
+  bottom: calc(58px + var(--phone-bar, 58px) + var(--safe-b));
+}
+html[data-shell="phone"] .gate-center { padding: 36px 28px; }
+
+/* 手机横屏：底栏收矮，给阅读让高 */
+html[data-shell="phone"][data-orient="land"] {
+  --phone-bar: 46px;
+  --top-h: 46px;
+}
+html[data-shell="phone"][data-orient="land"] .rail-tab { font-size: 12px; letter-spacing: 0.04em; }
+html[data-shell="phone"][data-orient="land"] .ar-body { padding: 16px 22px 24px; }
+
+/* ---------- 平板壳：左栏保留，触点放大；鸿蒙 MatePad / iPad / 折叠展开 ---------- */
+html[data-shell="tablet"] {
+  --rail-w: 176px;
+}
+html[data-shell="tablet"] .rail-space-sub,
+html[data-shell="tablet"] .rail-sub { display: none; }
+html[data-shell="tablet"] .rail {
+  padding-top: calc(16px + var(--safe-t));
+  padding-left: calc(10px + var(--safe-l));
+}
+html[data-shell="tablet"] .topbar {
+  padding-right: calc(14px + var(--safe-r));
+}
+html[data-shell="tablet"] .ar-body { padding: 28px 32px 40px; }
+html[data-shell="tablet"] .pref-hint { top: calc(14px + var(--safe-t)); }
+html[data-shell="tablet"] .bgm {
+  bottom: calc(24px + var(--safe-b));
+  right: calc(16px + var(--safe-r));
+}
+html[data-shell="tablet"] .more-mask { display: none; }
+html[data-shell="tablet"][data-orient="port"] .ar-panes.dual,
+html[data-shell="tablet"][data-orient="port"] .lh-panel {
+  grid-template-columns: minmax(0, 1fr);
+}
+html[data-shell="tablet"] .sk-grid { grid-template-columns: 1fr 1fr; }
+
+/* 折叠双屏（实验）：左段放导航 */
+@media (horizontal-viewport-segments: 2) {
+  html[data-shell="tablet"] .desk,
+  html[data-shell="phone"] .desk {
+    grid-template-columns: env(viewport-segment-width 0 0, var(--rail-w)) minmax(0, 1fr);
+  }
+}
+
+/* ---------- 电脑壳：Windows / macOS / 鸿蒙 PC ---------- */
+html[data-shell="desktop"] .more-mask { display: none; }
+html[data-shell="desktop"] .rail {
+  padding-top: calc(18px + var(--safe-t));
+}
+html[data-os="harmony"][data-shell="desktop"] {
+  --rail-w: 220px;
+}
+
+/* 鸿蒙 ArkWeb：重模糊容易掉帧，手机/平板降一档 */
+html[data-os="harmony"][data-shell="phone"] .rail,
+html[data-os="harmony"][data-shell="phone"] .topbar,
+html[data-os="harmony"][data-shell="tablet"] .rail,
+html[data-os="harmony"][data-shell="tablet"] .topbar {
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+html[data-os="harmony"][data-imm="smooth"] .glass,
+html[data-os="android"][data-imm="smooth"] .glass {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* iOS 橡皮筋：只在滚动容器内 */
+html[data-os="ios"] body { overscroll-behavior-y: none; }
+
+/* 键盘顶起命令盘（三壳共用 --vv-kb） */
+html[data-shell="phone"] .ck,
+html[data-shell="tablet"] .ck {
+  max-height: min(70vh, calc(var(--vvh, 100dvh) - 10vh - var(--vv-kb, 0px)));
+}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { animate, stagger } from 'animejs';
 import { ApiError, api, apiErrorMessage, type ImageryItem, type ImageryOcc } from '../api';
 import { notify } from '../toast';
+import { askUnlock } from '../unlock';
 
 /**
  * Σ6 意象博物馆 · v3.1
@@ -25,6 +26,7 @@ export function Museum({ focusId, onClearFocus, onOpenDoc }: {
   }, []);
 
   const openCase = async (item: ImageryItem) => {
+    if (item.locked) { askUnlock(); return; }
     if (cur?.item.id === item.id) { setCur(null); return; }
     const one = await api.imageryOne(item.id).catch((e: unknown) => {
       if (e instanceof ApiError && e.status === 403) window.dispatchEvent(new CustomEvent('mneme:locked'));
@@ -73,7 +75,7 @@ export function Museum({ focusId, onClearFocus, onOpenDoc }: {
             onClick={() => openCase(it)}
           >
             <span className="mu-no greek">{String(it.seq).padStart(2, '0')}</span>
-            <b>{it.name}</b>
+            <b>{it.name}{it.locked ? ' · 锁' : ''}</b>
             <i>主意象</i>
             <em>{it.occ} 次登场</em>
           </button>
@@ -91,7 +93,7 @@ export function Museum({ focusId, onClearFocus, onOpenDoc }: {
                 onClick={() => openCase(it)}
               >
                 <span className="mu-no greek">{String(it.seq).padStart(2, '0')}</span>
-                <b>{it.name.replace(/\*\*/g, '')}</b>
+                <b>{it.name.replace(/\*\*/g, '')}{it.locked ? ' · 锁' : ''}</b>
                 <i>候选意象</i>
                 <em>{it.occ} 次登记</em>
               </button>

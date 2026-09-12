@@ -45,7 +45,7 @@ const code = await new Promise(res => child.on('exit', res));
 try {
   fs.unlinkSync(hdrFile);
 } catch { /* ignore */ }
-if (code !== 0) process.exit(code || 1);
+if (!fs.existsSync(out)) process.exit(code || 1);
 const r = JSON.parse(fs.readFileSync(out, 'utf8'));
 const cat = {};
 for (const [k, v] of Object.entries(r.categories || {})) cat[k] = Math.round((v.score || 0) * 100);

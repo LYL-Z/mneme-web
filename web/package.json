@@ -5,13 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "build": "tsc --noEmit -p tsconfig.json && vite build --emptyOutDir=false",
     "sync:dist": "node scripts/sync-dist.mjs",
     "release": "npm run build && npm run sync:dist",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "preview": "vite preview",
     "test:privacy": "node --experimental-sqlite ../ingest/test-privacy.mjs",
     "test:api": "node --experimental-sqlite ../ingest/test-api-privacy.mjs",
+    "test:strict": "node --experimental-sqlite ../ingest/test-strict.mjs",
+    "lh:field": "node scripts/lighthouse-field.mjs",
     "smoke": "node --input-type=module -e \"console.log('公开仓不含带口令的浏览器验收稿；本地请对运行中的实例做点击复核。')\""
   },
   "dependencies": {

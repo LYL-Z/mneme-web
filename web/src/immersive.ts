@@ -27,7 +27,13 @@ export function immLevel(): ImmLevel {
     else {
       const cores = navigator.hardwareConcurrency ?? 4;
       const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
-      level = cores >= 8 && mem >= 8 ? 'exquisite' : cores >= 4 ? 'gentle' : 'smooth';
+      const os = document.documentElement.dataset.os;
+      const shell = document.documentElement.dataset.shell;
+      if (os === 'harmony' && shell === 'phone') {
+        level = cores >= 8 && mem >= 6 ? 'gentle' : 'smooth';
+      } else {
+        level = cores >= 8 && mem >= 8 ? 'exquisite' : cores >= 4 ? 'gentle' : 'smooth';
+      }
     }
   } catch { level = 'gentle'; }
   document.documentElement.dataset.imm = level;
@@ -51,6 +57,7 @@ export function skipHeavyFx(): boolean {
   try {
     if (document.documentElement.classList.contains('no-motion')) return true;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
+    if (document.documentElement.dataset.shell === 'phone') return true;
     if (matchMedia('(max-width: 960px)').matches) return true;
     const c = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
     if (c?.saveData) return true;

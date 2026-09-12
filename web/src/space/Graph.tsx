@@ -7,6 +7,7 @@ import { api, ApiError, apiErrorMessage, type EntityDetail, type GraphData } fro
 import { notify } from '../toast';
 import { evidenceLabel } from '../evidenceKind';
 import { useFocusTrap } from '../focusTrap';
+import { askUnlock } from '../unlock';
 
 /**
  * Σ3 人物星图 · v7「行星旷野」
@@ -31,6 +32,7 @@ const VIEW_KEY = 'mneme-graph-view';
 interface GNode extends SimulationNodeDatum {
   id: number; name: string; grp: string; mention: number; r: number; color: string;
   rank: number; // 星等排名（0 = 提及最多；低倍俯瞰时的名牌预算按此分级）
+  locked?: boolean;
 }
 interface GEdge { source: number | GNode; target: number | GNode; w: number }
 interface View { x: number; y: number; k: number }
@@ -48,10 +50,11 @@ const tint = (hex: string, k: number) => {
   return `rgb(${r},${g2},${b})`;
 };
 
-export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
+export function Graph({ theme, focusPersonId, onOpenDoc, onOpenPerson, onClearFocus }: {
   theme: 'paper' | 'night';
   focusPersonId: number | null;
   onOpenDoc: (path: string) => void;
+  onOpenPerson?: (id: number) => void;
   onClearFocus: () => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -177,6 +180,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
         return {
           id: m.id, name: m.name, grp: m.grp, mention: m.mention, r,
           color: GROUP_PALETTE[m.grp] || '#A9864A',
+          locked: m.locked,
           rank: i,
           x: Math.cos(ang) * t * rx + (hash1(m.id + 7) - 0.5) * 30,
           y: Math.sin(ang) * t * ry + (hash1(m.id + 13) - 0.5) * 30,
@@ -229,7 +233,15 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
 
   /* 打开抽屉（v4：绝密人物档案 → 403 弹管理员密码，解锁后自动补开） */
   const pendingSheet = useRef<number | null>(null);
+  const tryPerson = (id: number) => {
+    const n = byIdRef.current.get(id) ?? data?.nodes.find(x => x.id === id);
+    if (n?.locked) { askUnlock(); return; }
+    if (onOpenPerson) onOpenPerson(id);
+    else openSheet(id);
+  };
   const openSheet = (id: number) => {
+    const n = byIdRef.current.get(id);
+    if (n?.locked) { pendingSheet.current = id; askUnlock(); return; }
     api.entity(id).then(d => {
       if (d) { setSheet(d); pendingSheet.current = null; }
     }).catch((e: unknown) => {
@@ -251,8 +263,11 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    if (focusPersonId != null) { openSheet(focusPersonId); onClearFocus(); }
-  }, [focusPersonId, onClearFocus]);
+    if (focusPersonId == null) return;
+    openSheet(focusPersonId);
+    if (byIdRef.current.has(focusPersonId)) flyToId(focusPersonId, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusPersonId, data]);
 
   /* ---------- 渲染循环 v7.3：行星精灵 + 逐帧视口裁剪直绘（世界任意处恒可见） ----------
      旧「静态位图」只覆盖画布视口大小的世界窗口（±720×±402），旷野 60% 行星在位图之外——
@@ -312,6 +327,14 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
         g.addColorStop(1, n.color);
         c.fillStyle = g;
         c.beginPath(); c.arc(s, s, n.r, 0, Math.PI * 2); c.fill();
+        if (n.locked) {
+          c.save();
+          c.strokeStyle = '#C2A46B';
+          c.setLineDash([3, 2.4]);
+          c.lineWidth = 1.5;
+          c.beginPath(); c.arc(s, s, n.r + 2.6, 0, Math.PI * 2); c.stroke();
+          c.restore();
+        }
         map.set(n.id, cv);
       }
       spriteRef.current = map;
@@ -701,7 +724,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
   const onClick = (e: React.MouseEvent) => {
     if (dragRef.current.moved) { dragRef.current.moved = false; return; }
     const n = toWorld(e.clientX, e.clientY);
-    if (n) openSheet(n.id);
+    if (n) tryPerson(n.id);
   };
   const onDoubleClick = (e: React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
@@ -722,7 +745,8 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
   const searchGo = (id: number) => {
     setQFocus(false);
     setQ('');
-    flyToId(id);
+    flyToId(id, false);
+    tryPerson(id);
   };
 
   const legend = useMemo(() => {
@@ -766,7 +790,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
         onDoubleClick={onDoubleClick}
       />
       <div className="gp-tip glass" ref={tipRef} style={{ opacity: 0 }}>
-        {hover && <><b>{hover.name}</b><span>{hover.grp} · 提及 {hover.mention}</span></>}
+        {hover && <><b>{hover.name}</b><span>{hover.locked ? '绝密档案 · 需管理员密码' : `${hover.grp} · 提及 ${hover.mention}`}</span></>}
       </div>
 
       {/* v7 · 人物搜索（常驻，命中即飞行定位） */}
@@ -786,7 +810,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
                 onPointerDown={e => e.preventDefault()} // 防止 blur 先于 click 吞掉选择
                 onClick={() => searchGo(n.id)}>
                 <i style={{ background: GROUP_PALETTE[n.grp] || '#A9864A' }} />
-                <span>{n.name}</span>
+                <span>{n.name}{n.locked ? ' · 锁' : ''}</span>
                 <em>{n.grp}</em>
               </button>
             ))}
@@ -847,7 +871,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
               setRosterCur(c => Math.max(c - 1, 0));
             } else if (e.key === 'Enter' && roster[rosterCur] && !inQ) {
               e.preventDefault();
-              flyToId(roster[rosterCur].id);
+              tryPerson(roster[rosterCur].id);
             }
           }}
         >
@@ -868,10 +892,10 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
                 aria-selected={i === rosterCur}
                 className={`gp-roster-item ${i === rosterCur ? 'on' : ''}`}
                 onMouseEnter={() => setRosterCur(i)}
-                onClick={() => { flyToId(n.id); }}
+                onClick={() => tryPerson(n.id)}
               >
                 <i style={{ background: GROUP_PALETTE[n.grp] || '#A9864A' }} />
-                <span className="gp-roster-name">{n.name}</span>
+                <span className="gp-roster-name">{n.name}{n.locked ? ' · 锁' : ''}</span>
                 <span className="gp-roster-grp">{n.grp}</span>
                 <em>{n.mention}</em>
               </button>
@@ -883,7 +907,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
 
       {sheet && (
         <aside className="gp-sheet glass">
-          <button className="gp-sheet-x" onClick={() => setSheet(null)}>×</button>
+          <button className="gp-sheet-x" onClick={() => { setSheet(null); if (focusPersonId != null) onClearFocus(); }}>×</button>
           <p className="gp-sheet-grp" style={{ color: GROUP_PALETTE[sheet.relation_group] || 'var(--bronze)' }}>
             {sheet.relation_group}{sheet.stage ? ` · ${sheet.stage}` : ''}
           </p>
@@ -897,7 +921,19 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
               <h3>同篇共现</h3>
               <div className="gp-sheet-rel">
                 {sheet.related.map(r => (
-                  <button key={r.id} onClick={() => openSheet(r.id)}>{r.display_name}<em>{r.co}</em></button>
+                  <button key={r.id} type="button" onClick={() => { if (onOpenPerson) onOpenPerson(r.id); else openSheet(r.id); }}>{r.display_name}<em>{r.co}</em></button>
+                ))}
+              </div>
+            </>
+          )}
+          {(sheet.mentionDocs?.length ?? 0) > 0 && (
+            <>
+              <h3>出现于</h3>
+              <div className="gp-sheet-rel">
+                {(sheet.mentionDocs ?? []).slice(0, 8).map(d => (
+                  <button key={d.path} type="button" className="gp-ment" onClick={() => onOpenDoc(d.path)}>
+                    {d.title}<em>{d.hits}</em>
+                  </button>
                 ))}
               </div>
             </>
@@ -913,7 +949,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onClearFocus }: {
             </>
           )}
           {sheet.role_doc_path && (
-            <button className="gp-sheet-doc" onClick={() => onOpenDoc(sheet.role_doc_path)}>打开自档页 →</button>
+            <button className="gp-sheet-doc" type="button" onClick={() => onOpenDoc(sheet.role_doc_path)}>打开自档页 →</button>
           )}
         </aside>
       )}

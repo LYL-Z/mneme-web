@@ -15,6 +15,8 @@ const PARENT_LABEL = /^(母亲|父亲|妈妈|爸爸)/;
 const ROUND_ORDER = ['V1', 'V2', 'V3'];
 export function Voices({ onOpenDoc, overview }: { onOpenDoc: (path: string) => void; overview: Overview | null }) {
   const [items, setItems] = useState<Questionnaire[]>([]);
+  const [cmp, setCmp] = useState<number[]>([]);
+  const [only, setOnly] = useState<string>('all');
   const rootRef = useRef<HTMLDivElement>(null);
 
   const load = () => { api.questionnaires().then(setItems).catch(e => notify(apiErrorMessage(e), 'error')); };
@@ -38,6 +40,10 @@ export function Voices({ onOpenDoc, overview }: { onOpenDoc: (path: string) => v
     if (q.locked) { window.dispatchEvent(new CustomEvent('mneme:locked')); return; }
     onOpenDoc(q.doc_path);
   };
+  const toggleCmp = (id: number) => {
+    setCmp(cur => cur.includes(id) ? cur.filter(x => x !== id) : cur.length < 2 ? [...cur, id] : [cur[1], id]);
+  };
+  const pair = cmp.map(id => items.find(q => q.id === id && !q.locked)).filter((q): q is Questionnaire => !!q);
 
   const rounds = ROUND_ORDER.filter(r => items.some(q => (q.round || 'V1') === r));
 
@@ -51,9 +57,42 @@ export function Voices({ onOpenDoc, overview }: { onOpenDoc: (path: string) => v
           本馆已收入 <b className="vo-big">{items.length}</b> 份作答全文——
           说话人与关系按卷面登录；除父母卷外均为<b className="vo-secret">绝密档案</b>
           {lockedCount > 0 ? `（待解锁 ${lockedCount} 份）` : ''}。评价只属于作答人，不是人格结论。
+          可点选至多两份已解锁卷对照同一题号。
         </p>
       </header>
-      {rounds.map(rd => (
+      {pair.length === 2 && (() => {
+        const ns = [...new Set([...pair[0].answers.map(a => a.n), ...pair[1].answers.map(a => a.n)])];
+        const pick = (q: Questionnaire, n: string) => q.answers.find(a => a.n === n);
+        return (
+          <section className="vo-cmp surface" aria-label="两卷对照">
+            <p className="vo-cmp-head">对照 · {pair[0].respondent_label} ⇄ {pair[1].respondent_label}</p>
+            <p className="vo-cmp-note">并排的是同一题号下的作答原文，不是对两人的评判。</p>
+            <div className="vo-cmp-grid">
+              {ns.map(n => {
+                const a = pick(pair[0], n);
+                const b = pick(pair[1], n);
+                return (
+                  <div key={n} className="vo-cmp-row">
+                    <b>{n}</b>
+                    <p><i>{a?.q || b?.q || ''}</i>{a?.a || '—'}</p>
+                    <p><i>{b?.q || a?.q || ''}</i>{b?.a || '—'}</p>
+                  </div>
+                );
+              })}
+            </div>
+            <button type="button" className="vo-read" onClick={() => setCmp([])}>结束对照</button>
+          </section>
+        );
+      })()}
+      {rounds.length > 1 && (
+        <p className="vo-filter">
+          <button type="button" className={only === 'all' ? 'on' : ''} onClick={() => setOnly('all')}>全部轮次</button>
+          {rounds.map(r => (
+            <button key={r} type="button" className={only === r ? 'on' : ''} onClick={() => setOnly(r)}>{r}</button>
+          ))}
+        </p>
+      )}
+      {rounds.filter(rd => only === 'all' || rd === only).map(rd => (
         <section key={rd} className="vo-round">
           <h2 className="vo-round-title"><span className="greek">{rd}</span> 第 {ROUND_ORDER.indexOf(rd) + 1} 轮 · {items.filter(q => (q.round || 'V1') === rd).length} 份</h2>
           <div className="vo-grid">
@@ -87,7 +126,12 @@ export function Voices({ onOpenDoc, overview }: { onOpenDoc: (path: string) => v
                         </div>
                       ))}
                     </dl>
-                    <button className="vo-read" onClick={() => openDoc(q)}>读作答全文 →</button>
+                    <div className="vo-actions">
+                      <button className="vo-read" onClick={() => openDoc(q)}>读作答全文 →</button>
+                      <button type="button" className={`vo-cmp-btn${cmp.includes(q.id) ? ' on' : ''}`} onClick={() => toggleCmp(q.id)}>
+                        {cmp.includes(q.id) ? '已选对照' : '加入对照'}
+                      </button>
+                    </div>
                   </>
                 )}
               </article>

@@ -17,7 +17,12 @@ import { readPrefs } from './space/Wellness';
 import { useFocusTrap } from './focusTrap';
 import { stageAnchorYear } from './stages';
 import { parseLocation, routeId, routeToPath, migrateHashIfNeeded, type Route, type SpaceKey, type RiverQuery } from './route';
-import { resumeTarget } from './history';
+import { getDocNeighbors, getRecentDocs, isPublicPath, resumeTarget } from './history';
+import { purgePublicDrafts } from './drafts';
+import { readScroller } from './readHost';
+import { prefetchSpace, prefetchWorkbench } from './prefetch';
+import { isModifiedClick } from './navClick';
+import { copyPermalink } from './cite';
 
 /* v4 · B1 路由代码分割：d3-force（Graph）与重型空间按需加载，首屏只载 记忆恒星+导航 */
 const River = lazy(() => import('./space/River').then(m => ({ default: m.River })));
@@ -96,13 +101,27 @@ const persistScroll = () => {
 export default function App() {
   const [gateDone, setGateDone] = useState(() => sessionStorage.getItem('mneme-gate') === '1');
   const [annoOpen, setAnnoOpen] = useState(() => sessionStorage.getItem('mneme-gate') === '1' && !sessionStorage.getItem('mneme-anno'));
+  const [secretOpen, setSecretOpen] = useState(false);
   useEffect(() => {
     immLevel(); // v4 · 沉浸光感：ADAPTIVE 档位探测
     watchFps();  // v5.1 · 运行时帧率哨兵：卡顿自动降档
   }, []);
   useEffect(() => {
+    if (gateDone) prefetchWorkbench();
+  }, [gateDone]);
+  useEffect(() => {
+    const onGate = (e: Event) => setSecretOpen(!!(e as CustomEvent<boolean>).detail);
+    const onSearch = () => { setCkOpen(true); setHelpOpen(false); };
+    window.addEventListener('mneme:secret-gate', onGate);
+    window.addEventListener('mneme:search', onSearch);
+    return () => {
+      window.removeEventListener('mneme:secret-gate', onGate);
+      window.removeEventListener('mneme:search', onSearch);
+    };
+  }, []);
+  useEffect(() => {
     if (!gateDone) return;
-    const host = document.querySelector('.space-host') as HTMLElement | null;
+    const host = readScroller() || document.querySelector('.space-host') as HTMLElement | null;
     const nav = document.querySelector('.topbar') as HTMLElement | null;
     if (!host || !nav) return;
     const offBlur = bindGradientBlur(host, nav);
@@ -110,6 +129,7 @@ export default function App() {
     return () => { offBlur(); offRipple(); };
   }, [gateDone]);
   const [ov, setOv] = useState<Overview | null>(null);
+  const [vaultOpen, setVaultOpen] = useState(false);
   const [route, setRoute] = useState<Route>(() => {
     migrateHashIfNeeded();
     /* `/` 续读上次材料；显式 `/space/stars` 仍是门厅，避免「记忆恒星」点不回去。 */
@@ -152,8 +172,10 @@ export default function App() {
 
   useEffect(() => {
     const load = () => api.overview().then(setOv).catch(e => notify(apiErrorMessage(e), 'error'));
+    const vault = () => api.secretStatus().then(s => setVaultOpen(s.unlocked)).catch(() => {});
     load();
-    const onUnlocked = () => { setFoCount(null); load(); };
+    vault();
+    const onUnlocked = () => { setFoCount(null); load(); vault(); };
     window.addEventListener('mneme:unlocked', onUnlocked);
     return () => window.removeEventListener('mneme:unlocked', onUnlocked);
   }, []);
@@ -183,8 +205,14 @@ export default function App() {
   useEffect(() => {
     migrateHashIfNeeded();
     const apply = () => setRoute(parseLocation());
-    window.addEventListener('popstate', apply);
-    return () => window.removeEventListener('popstate', apply);
+    const onPop = () => {
+      const doc = document as Document & { startViewTransition?: (cb: () => void) => void };
+      const motionOk = !matchMedia('(prefers-reduced-motion: reduce)').matches && readPrefs().motion;
+      if (motionOk && typeof doc.startViewTransition === 'function') doc.startViewTransition(apply);
+      else apply();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
 
   /* 空间切换动画（首挂载跳过；v3.3 收窄至 260ms——审查预算：面板切换 180–260ms，操作感优先于展陈） */
@@ -224,22 +252,29 @@ export default function App() {
 
   /* 原文阅读进度：只改 transform，不触发 App 重绘 */
   useEffect(() => {
-    const host = mainRef.current;
     const bar = readBarRef.current;
     const wrap = bar?.parentElement;
-    if (!host || !bar || !wrap) return;
+    if (!bar || !wrap) return;
     const isDoc = route.v === 'doc';
     wrap.classList.toggle('on', isDoc);
     wrap.setAttribute('aria-hidden', isDoc ? 'false' : 'true');
     const upd = () => {
       if (!isDoc) { bar.style.transform = 'scaleX(0)'; return; }
+      const host = readScroller() || mainRef.current;
+      if (!host) { bar.style.transform = 'scaleX(0)'; return; }
       const max = host.scrollHeight - host.clientHeight;
       const p = max <= 0 ? 1 : Math.min(1, host.scrollTop / max);
       bar.style.transform = `scaleX(${p})`;
     };
     upd();
-    host.addEventListener('scroll', upd, { passive: true });
-    return () => host.removeEventListener('scroll', upd);
+    document.addEventListener('scroll', upd, { capture: true, passive: true });
+    window.addEventListener('resize', upd);
+    window.addEventListener('mneme:layout', upd);
+    return () => {
+      document.removeEventListener('scroll', upd, true);
+      window.removeEventListener('resize', upd);
+      window.removeEventListener('mneme:layout', upd);
+    };
   }, [route, gateDone]);
 
   /* 主题持久化 + <html data-theme> 挂载（M6 双主题） */
@@ -248,7 +283,40 @@ export default function App() {
     if (theme === 'night') root.setAttribute('data-theme', 'night');
     else root.removeAttribute('data-theme');
     localStorage.setItem('mneme-theme', theme);
+    const color = theme === 'night' ? '#14120E' : '#F5F0E6';
+    document.querySelectorAll('meta[name="theme-color"][media]').forEach(m => m.remove());
+    let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'theme-color';
+      document.head.appendChild(meta);
+    }
+    meta.content = color;
+    const apple = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if (apple) apple.setAttribute('content', theme === 'night' ? 'black-translucent' : 'default');
   }, [theme]);
+  useEffect(() => {
+    const mq = matchMedia('(prefers-color-scheme: dark)');
+    const sync = () => {
+      try { if (localStorage.getItem('mneme-theme-manual') === '1') return; } catch { /* 隐私模式 */ }
+      setTheme(mq.matches ? 'night' : 'paper');
+    };
+    const onSys = () => {
+      try { localStorage.removeItem('mneme-theme-manual'); } catch { /* */ }
+      sync();
+    };
+    sync();
+    mq.addEventListener('change', sync);
+    window.addEventListener('mneme:theme-system', onSys);
+    return () => {
+      mq.removeEventListener('change', sync);
+      window.removeEventListener('mneme:theme-system', onSys);
+    };
+  }, []);
+  const toggleTheme = useCallback(() => {
+    try { localStorage.setItem('mneme-theme-manual', '1'); } catch { /* 隐私模式 */ }
+    setTheme(t => (t === 'night' ? 'paper' : 'night'));
+  }, []);
 
   /* Liquid Glass（M6.5）：置换能力行为级探测 + 鼠标跟随光（rAF 节流委托）
      探测元素必须先附着 DOM——游离元素的 getComputedStyle 返回空串，曾致 Chromium 误判无置换 */
@@ -289,24 +357,59 @@ export default function App() {
 
   /* ---------- 导航：pushState；筛选类改写用 replace，避免把每次点选都推进历史 ---------- */
   const go = useCallback((r: Route, mode: 'push' | 'replace' = 'push') => {
-    const next = routeToPath(r);
-    const here = `${location.pathname}${location.search}`;
-    if (here !== next) {
-      if (mode === 'replace') history.replaceState(null, '', next);
-      else history.pushState(null, '', next);
-    }
-    setRoute(r);
+    const apply = () => {
+      const next = routeToPath(r);
+      const here = `${location.pathname}${location.search}`;
+      if (here !== next) {
+        if (mode === 'replace') history.replaceState(null, '', next);
+        else history.pushState(null, '', next);
+      }
+      setRoute(r);
+    };
+    const doc = document as Document & { startViewTransition?: (cb: () => void) => void };
+    const motionOk = !matchMedia('(prefers-reduced-motion: reduce)').matches && readPrefs().motion;
+    if (mode === 'push' && motionOk && typeof doc.startViewTransition === 'function') {
+      doc.startViewTransition(apply);
+    } else apply();
   }, []);
   const openDoc = useCallback((p: string, h?: string, ev?: number, q?: string) => {
     if (!p) return;
     const query = q?.trim().slice(0, 48) || undefined;
     go({ v: 'doc', path: p, h, ev, q: query });
   }, [go]);
+  useEffect(() => {
+    const lastPublic = () => getRecentDocs()[0];
+    const onEdit = () => {
+      if (routeRef.current.v === 'doc') return;
+      const last = lastPublic();
+      if (!last) { notify('先打开一篇公开原文', 'warn'); return; }
+      go({ v: 'doc', path: last.path });
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent('mneme:edit')), 120);
+    };
+    const onAi = () => {
+      if (routeRef.current.v === 'doc') return;
+      const last = lastPublic();
+      if (!last) { notify('先打开一篇公开原文', 'warn'); return; }
+      go({ v: 'doc', path: last.path });
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent('mneme:ai')), 120);
+    };
+    window.addEventListener('mneme:edit', onEdit);
+    window.addEventListener('mneme:ai', onAi);
+    return () => {
+      window.removeEventListener('mneme:edit', onEdit);
+      window.removeEventListener('mneme:ai', onAi);
+    };
+  }, [go]);
   const openPerson = useCallback((id: number) => go({ v: 'person', id }), [go]);
   const openImagery = useCallback((id: number) => go({ v: 'imagery', id }), [go]);
   const openVolume = useCallback((code: string) => go({ v: 'volume', code }), [go]);
   const openChapter = useCallback((code: string, seq: number) => go({ v: 'chapter', code, seq }), [go]);
   const openSpace = useCallback((key: SpaceKey) => go({ v: 'space', key }), [go]);
+  const goHref = (e: React.MouseEvent<HTMLAnchorElement>, r: Route, mode: 'push' | 'replace' = 'push') => {
+    if (isModifiedClick(e)) return;
+    e.preventDefault();
+    go(r, mode);
+  };
   const openRiver = useCallback((year?: number, eventId?: number) => {
     setRiverFocus(year != null ? { year, eventId } : null);
     const prev = routeRef.current.v === 'space' && routeRef.current.key === 'river' ? routeRef.current.river : undefined;
@@ -383,6 +486,34 @@ export default function App() {
         setGPending(true);
         window.clearTimeout(gTimer.current);
         gTimer.current = window.setTimeout(clearG, 1200);
+        return;
+      }
+      if ((e.key === '[' || e.key === ']') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const cur = routeRef.current.v === 'doc' ? routeRef.current.path : '';
+        const neigh = getDocNeighbors().filter(isPublicPath);
+        const recents = getRecentDocs().map(d => d.path).filter(isPublicPath);
+        const base = (neigh.length ? neigh : recents).filter(p => p !== cur);
+        const paths = cur && isPublicPath(cur) ? [cur, ...base] : base;
+        if (paths.length < 2) return;
+        e.preventDefault();
+        const i = Math.max(0, paths.indexOf(cur));
+        const next = paths[(i + (e.key === ']' ? 1 : paths.length - 1)) % paths.length];
+        go({ v: 'doc', path: next });
+        return;
+      }
+      if (e.key === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && routeRef.current.v === 'doc') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('mneme:find'));
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F') && routeRef.current.v === 'doc') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('mneme:find'));
+        return;
+      }
+      if ((e.key === 'c' || e.key === 'C') && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        copyPermalink();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -393,7 +524,7 @@ export default function App() {
   }, [ckOpen, helpOpen, moreOpen, tocOpen, go]);
 
   const spaceKey: SpaceKey = route.v === 'space' ? route.key : route.v === 'doc' ? 'archive' : route.v === 'person' ? 'graph' : route.v === 'imagery' ? 'museum' : 'study';
-  const overlayOpen = tocOpen || ckOpen || helpOpen || moreOpen || annoOpen
+  const overlayOpen = tocOpen || ckOpen || helpOpen || moreOpen || annoOpen || secretOpen
     || route.v === 'chapter' || route.v === 'foreshadow';
   useEffect(() => {
     const desk = document.querySelector('.desk');
@@ -401,7 +532,8 @@ export default function App() {
     if (overlayOpen) desk.setAttribute('inert', '');
     else desk.removeAttribute('inert');
   }, [overlayOpen]);
-  const ckHint = /Mac|iP(hone|ad|od)/.test(navigator.platform) ? '⌘K' : 'Ctrl+K';
+  const ckHint = document.documentElement.dataset.os === 'mac' || document.documentElement.dataset.os === 'ios'
+    ? '⌘K' : 'Ctrl+K';
 
   return (
     <>
@@ -445,36 +577,40 @@ export default function App() {
                 <span className="rail-group-label">{g.label}</span>
                 <div className="nav-group-row">
                   {g.spaces.map(s => (
-                    <button
+                    <a
                       key={s.key}
+                      href={routeToPath({ v: 'space', key: s.key })}
                       className={`rail-space ${spaceKey === s.key ? 'on' : ''}`}
-                      onClick={() => openSpace(s.key)}
+                      aria-current={spaceKey === s.key ? 'page' : undefined}
+                      onClick={e => goHref(e, { v: 'space', key: s.key })}
+                      onPointerEnter={() => prefetchSpace(s.key)}
                       title={s.name}
                     >
                       <span className="rail-space-name">{s.name}</span>
                       <span className="rail-space-sub">{s.sub}</span>
-                    </button>
+                    </a>
                   ))}
                 </div>
               </div>
             ))}
             <div className="rail-foot">
               <button className="rail-link" onClick={() => setTocOpen(true)}>总纲 · 全馆导览</button>
-              <button className="rail-link" onClick={() => go({ v: 'foreshadow' })}>伏应矩阵</button>
+              <a className="rail-link" href={routeToPath({ v: 'foreshadow' })} onClick={e => goHref(e, { v: 'foreshadow' })}>伏应矩阵</a>
             </div>
             </div>
             <nav className="rail-tabs" aria-label="主要分区">
               {MOBILE_TABS.map(tab => {
                 const on = route.v !== 'foreshadow' && (tab.match as readonly string[]).includes(spaceKey);
                 return (
-                  <button
+                  <a
                     key={tab.label}
-                    type="button"
+                    href={routeToPath({ v: 'space', key: tab.go })}
                     className={`rail-tab ${on ? 'on' : ''}`}
-                    onClick={() => { setMoreOpen(false); if (!on) openSpace(tab.go); }}
+                    aria-current={on ? 'page' : undefined}
+                    onClick={e => { if (isModifiedClick(e)) return; e.preventDefault(); setMoreOpen(false); if (!on) openSpace(tab.go); }}
                   >
                     {tab.label}
-                  </button>
+                  </a>
                 );
               })}
               <button
@@ -495,12 +631,39 @@ export default function App() {
             <button className="top-keys" onClick={() => setHelpOpen(true)} aria-label="键盘快捷键" title="快捷键">
               <kbd>?</kbd>
             </button>
+            <button
+              type="button"
+              className="top-copy"
+              aria-label="复制本页深链"
+              title="复制本页深链"
+              onClick={() => {
+                const url = `${location.origin}${location.pathname}${location.search}`;
+                const ok = () => notify('已复制本页深链', 'info');
+                if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(ok).catch(() => notify('复制失败', 'warn'));
+                else notify('复制失败', 'warn');
+              }}
+            >
+              链
+            </button>
             <div className="topbar-actions">
+            <button
+              type="button"
+              className={`top-vault ${vaultOpen ? 'on' : ''}`}
+              aria-label={vaultOpen ? '绝密档案已开锁' : '打开绝密档案'}
+              title={vaultOpen ? '绝密档案已开锁' : '绝密档案 · 管理员密码'}
+              onClick={() => { if (!vaultOpen) window.dispatchEvent(new CustomEvent('mneme:locked')); }}
+            >
+              {vaultOpen ? '已开锁' : '绝密'}
+            </button>
             <button
               className="nav-logout"
               aria-label="退出本次访问"
               title="退出本次访问"
-              onClick={() => { window.location.href = '/api/logout'; }}
+              onClick={() => {
+                navigator.serviceWorker?.controller?.postMessage({ type: 'mneme-purge-docs' });
+                purgePublicDrafts();
+                window.location.href = '/api/logout';
+              }}
             >
               离场
             </button>
@@ -508,7 +671,10 @@ export default function App() {
               className="nav-theme"
               aria-label={theme === 'night' ? '切换到纸色主题' : '切换到墨夜主题'}
               title={theme === 'night' ? '回到纸色' : '入墨夜'}
-              onClick={() => setTheme(t => (t === 'night' ? 'paper' : 'night'))}
+              onClick={() => {
+                try { localStorage.setItem('mneme-theme-manual', '1'); } catch { /* 隐私模式 */ }
+                setTheme(t => (t === 'night' ? 'paper' : 'night'));
+              }}
             >
               {theme === 'night' ? (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -555,6 +721,7 @@ export default function App() {
                   theme={theme}
                   focusPersonId={route.v === 'person' ? route.id : null}
                   onOpenDoc={openDoc}
+                  onOpenPerson={openPerson}
                   onClearFocus={() => { if (route.v === 'person') go({ v: 'space', key: 'graph' }); }}
                 />
               </Lazy>
@@ -596,7 +763,16 @@ export default function App() {
                 />
               </Lazy>
             )}
-            {spaceKey === 'lighthouse' && <Lazy><Lighthouse overview={ov} onOpenDoc={openDoc} /></Lazy>}
+            {spaceKey === 'lighthouse' && (
+                <Lazy>
+                  <Lighthouse
+                    overview={ov}
+                    onOpenDoc={openDoc}
+                    tab={route.v === 'space' && route.key === 'lighthouse' ? (route.lh ?? 'all') : 'all'}
+                    onTab={lh => go({ v: 'space', key: 'lighthouse', lh: lh === 'all' ? undefined : lh }, 'replace')}
+                  />
+                </Lazy>
+              )}
             </ErrorBoundary>
           </main>
           </div>
@@ -615,6 +791,7 @@ export default function App() {
                 code={route.code} seq={route.seq}
                 onClose={() => go({ v: 'space', key: 'study' })}
                 onOpenDoc={openDoc} onOpenImagery={openImagery}
+                onOpenChapter={openChapter}
               />
             </Lazy>
           )}
@@ -623,6 +800,7 @@ export default function App() {
             open={ckOpen} onClose={() => setCkOpen(false)}
             onOpenDoc={openDoc} onOpenPerson={openPerson} onOpenRiver={openRiver}
             onOpenImagery={openImagery} onOpenVolume={openVolume} onOpenChapter={openChapter}
+            onGoSpace={openSpace} onToggleTheme={toggleTheme}
           />
           <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
           {gPending && <div className="g-pending glass" role="status">g …</div>}
@@ -633,18 +811,18 @@ export default function App() {
                 <h1 id="more-title">全馆</h1>
                 <div className="more-list">
                   {NAV_GROUPS.map(g => g.spaces.map(s => (
-                    <button
+                    <a
                       key={s.key}
-                      type="button"
+                      href={routeToPath({ v: 'space', key: s.key })}
                       className={`more-item ${spaceKey === s.key ? 'on' : ''}`}
-                      onClick={() => { setMoreOpen(false); openSpace(s.key); }}
+                      onClick={e => { if (isModifiedClick(e)) return; e.preventDefault(); setMoreOpen(false); openSpace(s.key); }}
                     >
                       <b>{s.name}</b><span>{g.label}</span>
-                    </button>
+                    </a>
                   )))}
-                  <button type="button" className="more-item" onClick={() => { setMoreOpen(false); go({ v: 'foreshadow' }); }}>
+                  <a href={routeToPath({ v: 'foreshadow' })} className="more-item" onClick={e => { if (isModifiedClick(e)) return; e.preventDefault(); setMoreOpen(false); go({ v: 'foreshadow' }); }}>
                     <b>伏应矩阵</b><span>书稿</span>
-                  </button>
+                  </a>
                   <button type="button" className="more-item" onClick={() => { setMoreOpen(false); setTocOpen(true); }}>
                     <b>总纲</b><span>导览</span>
                   </button>
@@ -679,11 +857,11 @@ export default function App() {
                     <section key={g.label} className="toc-group">
                       <h2>{g.label}</h2>
                       {g.spaces.map(s => (
-                        <button key={s.key} className="toc-item" onClick={() => { setTocOpen(false); openSpace(s.key); }}>
+                        <a key={s.key} href={routeToPath({ v: 'space', key: s.key })} className="toc-item" onClick={e => { if (isModifiedClick(e)) return; e.preventDefault(); setTocOpen(false); openSpace(s.key); }}>
                           <span className="greek toc-g">{TOC[s.key].greek}</span>
                           <b>{TOC[s.key].name}</b>
                           <span className="toc-line">{TOC[s.key].line}</span>
-                        </button>
+                        </a>
                       ))}
                     </section>
                   ))}

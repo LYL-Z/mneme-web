@@ -29,6 +29,10 @@ export function SecretGate() {
   }, []);
 
   useEffect(() => {
+    window.dispatchEvent(new CustomEvent('mneme:secret-gate', { detail: open }));
+  }, [open]);
+
+  useEffect(() => {
     if (!open) return;
     closing.current = false;
     setPwd(''); setErr(false); setBusy(false);

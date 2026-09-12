@@ -6,13 +6,12 @@
  * 环境变量：MNEME_PG（连接串，必填）；MNEME_PG_SSL=1 时启用 SSL（rejectUnauthorized:false）
  *
  * 隐私门禁：与 store.mjs 共用 ./privacy.mjs 的判定与 SQL 守卫片段（禁止各写一套）。
- * 每个只读出口都接受 { unlocked }，未解锁时私密层（私人资料/隐私）与绝密档案
- * （绝密人物全宗 / 卷二卷三 / 非父母卷问卷）一律不出现在任何返回结果里。
+ * 每个只读出口都接受 { unlocked }。未解锁时私密层不可枚举；绝密档案以锁定档出现，正文仍 403。
  */
 import pg from 'pg';
 import {
   SECRET_NAME, SECRET_VOLUMES, QUESTIONNAIRE_MARK, isParentLabel,
-  isPrivatePath, isSecretPath, isSecretText, mustHideEntity,
+  isPrivatePath, isSecretPath, isSecretText, isSecretEntity, mustHideEntity, isLockedStub,
   entityGuardSql, ENTITY_GUARD_PARAMS, docGuardSql, timelineGuardSql,
   chapterGuardSql, imageryGuardSql, questionnaireGuardSql, scrubMeta, sanitizeGroups, sanitizeForeshadow,
 } from './privacy.mjs';
@@ -86,7 +85,8 @@ export const evidenceQueue = async ({ unlocked = false } = {}) => {
     WHERE es.kind IN ('pending','pendingCollect','conflict') ${guard}
     ORDER BY CASE es.kind WHEN 'conflict' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, d.mtime DESC
     LIMIT 80`);
-  return unlocked ? rows : rows.filter(r => !isSecretText(r.snippet) && !isSecretText(r.title));
+  return unlocked ? rows : rows.map(r => isLockedStub(r) || isSecretText(r.snippet)
+    ? { ...r, snippet: '', locked: true } : r);
 };
 
 /* ---------- 十域 ---------- */
@@ -101,7 +101,7 @@ export const domainDocs = async (name, limit = 60, offset = 0, { unlocked = fals
     domain: name,
     total: (await one(`SELECT COUNT(*) c FROM documents WHERE domain=?${g}`, name)).c,
     docs: (await all(`SELECT id,path,title,doc_type,stage,volume,mtime,meta FROM documents WHERE domain=?${g} ORDER BY mtime DESC LIMIT ? OFFSET ?`, name, limit, offset))
-      .map(d => ({ ...d, meta: scrubMeta(J(d.meta, {}), unlocked) })),
+      .map(d => ({ ...d, meta: scrubMeta(J(d.meta, {}), unlocked), locked: !unlocked && isLockedStub(d) })),
   };
 };
 
@@ -114,18 +114,27 @@ export const timeline = ({ from = 2000, to = 2030, stage, kind, unlocked = false
   if (kind) { sql += ' AND t.kind=?'; p.push(kind); }
   if (!unlocked) sql += timelineGuardSql('t');
   sql += ' ORDER BY t.year, t.month IS NULL, t.month';
-  return all(sql, ...p);
+  return all(sql, ...p).then(rows => rows.map(e => {
+    if (unlocked || !isLockedStub(e)) return e;
+    return { ...e, locked: true, detail: null, ref: null, ref_title: null };
+  }));
 };
 
 /* ---------- 人物 ---------- */
-export const entities = ({ group, q: qq, limit = 400, unlocked = false } = {}) => {
+export const entities = async ({ group, q: qq, limit = 400, unlocked = false } = {}) => {
   let sql = 'SELECT id,std_id,display_name,relation_group,stage,mention_count,first_year,last_year FROM entities WHERE 1=1';
   const p = [];
   if (group) { sql += ' AND relation_group=?'; p.push(group); }
   if (qq) { sql += ' AND (display_name ILIKE ? OR std_id ILIKE ?)'; p.push(`%${qq}%`, `%${qq}%`); }
   if (!unlocked) { sql += entityGuardSql(); p.push(...ENTITY_GUARD_PARAMS); }
   sql += ' ORDER BY mention_count DESC LIMIT ?'; p.push(unlocked ? limit : limit + 64);
-  const rows = (await all(sql, ...p)).filter(e => !mustHideEntity(e, unlocked));
+  const rows = (await all(sql, ...p)).filter(e => !mustHideEntity(e, unlocked)).map(e => {
+    if (!unlocked && isSecretEntity(e)) {
+      const { std_id, role_doc_path, ...rest } = e;
+      return { ...rest, locked: true };
+    }
+    return e;
+  });
   return unlocked ? rows : rows.slice(0, limit);
 };
 
@@ -137,8 +146,9 @@ export const entity = async (id, { unlocked = false } = {}) => {
   if (!e) return null;
   e.aliases = J(e.aliases, []);
   const docG = unlocked ? '' : docGuardSql('d');
-  const mentionDocs = await all(`SELECT d.id,d.path,d.title,d.domain,d.stage,d.mtime,m.hits FROM entity_mentions m
-    JOIN documents d ON d.id=m.doc_id WHERE m.entity_id=?${docG} ORDER BY d.mtime DESC LIMIT 120`, id);
+  const mentionDocs = (await all(`SELECT d.id,d.path,d.title,d.domain,d.stage,d.mtime,m.hits FROM entity_mentions m
+    JOIN documents d ON d.id=m.doc_id WHERE m.entity_id=?${docG} ORDER BY d.mtime DESC LIMIT 120`, id))
+    .map(d => (!unlocked && isLockedStub(d)) ? { ...d, locked: true } : d);
   const relG = unlocked ? '' : entityGuardSql('e.');
   const related = (await all(`SELECT e.id,e.std_id,e.role_doc_path,e.display_name,e.relation_group,e.mention_count,COUNT(*) co
     FROM entity_mentions m1 JOIN entity_mentions m2 ON m1.doc_id=m2.doc_id AND m2.entity_id!=m1.entity_id
@@ -146,7 +156,8 @@ export const entity = async (id, { unlocked = false } = {}) => {
     JOIN documents d ON d.id=m1.doc_id AND d.is_index=0
     WHERE m1.entity_id=?${relG} GROUP BY e.id ORDER BY co DESC LIMIT 12`, id, ...(unlocked ? [] : ENTITY_GUARD_PARAMS)))
     .filter(e => !mustHideEntity(e, unlocked))
-    .map(({ std_id, role_doc_path, ...e }) => e);
+    .map(({ std_id, role_doc_path, ...e }) =>
+      (!unlocked && isSecretEntity({ display_name: e.display_name })) ? { ...e, locked: true } : e);
   const evidence = await all(`SELECT es.kind, es.snippet FROM evidence_spans es WHERE es.doc_id IN
     (SELECT doc_id FROM entity_mentions WHERE entity_id=? LIMIT 40) LIMIT 30`, id);
   const docRow = await one('SELECT body FROM documents WHERE path=?', e.role_doc_path);
@@ -157,9 +168,11 @@ export const entity = async (id, { unlocked = false } = {}) => {
 export const graph = async ({ unlocked = false } = {}) => {
   const nodes = (await all(`SELECT id, display_name AS name, relation_group AS grp, stage, mention_count AS mention,
     role_doc_path AS doc, std_id, first_year, last_year FROM entities`))
-    /* 节点对象字段名是 name/doc（已别名化），不能复用 mustHideEntity 的 display_name/role_doc_path 判定 */
-    .filter(n => unlocked || !(isPrivatePath(n.std_id) || isPrivatePath(n.doc) || isSecretText(n.name)))
-    .map(({ std_id, ...n }) => n);
+    .filter(n => unlocked || !(isPrivatePath(n.std_id) || isPrivatePath(n.doc)))
+    .map(({ std_id, doc, ...n }) => {
+      const locked = !unlocked && isSecretText(n.name);
+      return locked ? { ...n, locked: true } : { ...n, doc };
+    });
   const co = await all(`SELECT m1.entity_id a, m2.entity_id b, COUNT(*) w
     FROM entity_mentions m1 JOIN entity_mentions m2 ON m1.doc_id=m2.doc_id AND m1.entity_id<m2.entity_id
     JOIN documents d ON d.id=m1.doc_id AND d.is_index=0 AND d.is_private=0
@@ -167,7 +180,7 @@ export const graph = async ({ unlocked = false } = {}) => {
   const nodesById = new Set(nodes.map(n => n.id));
   const edges = co.filter(e => nodesById.has(e.a) && nodesById.has(e.b)).map(e => [e.a, e.b, e.w]);
   const stardust = (await all('SELECT DISTINCT to_target FROM wikilinks WHERE resolved=0 AND is_private=0 LIMIT 1300'))
-    .map(r => r.to_target).filter(t => unlocked || !isSecretText(t));
+    .map(r => r.to_target);
   return { nodes, edges, stardust, legend: { edge: '同篇共现 / wikilink 关联（非关系亲疏）', stardust: '名录留名占位（待建人物页）' } };
 };
 
@@ -192,7 +205,7 @@ export const volume = async (code) => {
 export const imagery = async ({ unlocked = false } = {}) =>
   (await all(`SELECT i.*, (SELECT COUNT(*) FROM imagery_occurrences o WHERE o.imagery_id=i.id)::int occ
     FROM imagery i ORDER BY i.candidate, i.seq`))
-    .filter(i => unlocked || !isSecretText(i.name));
+    .map(i => (!unlocked && isSecretText(i.name)) ? { ...i, locked: true } : i);
 
 export const imageryOne = async (id, { unlocked = false } = {}) => {
   const im = await one('SELECT * FROM imagery WHERE id=?', id);
@@ -231,20 +244,23 @@ export const doc = async (rawPath, opts = {}) => {
     }
   }
   const blG = unlocked ? '' : docGuardSql('d');
-  const backlinks = await all(`SELECT DISTINCT d.path, d.title, d.domain FROM wikilinks w JOIN documents d ON d.path=w.from_doc
-    WHERE w.to_target=? AND w.is_private=0 AND w.resolved=1 AND w.from_doc!=?${blG} LIMIT 60`, base, d.path);
+  const backlinks = (await all(`SELECT DISTINCT d.path, d.title, d.domain FROM wikilinks w JOIN documents d ON d.path=w.from_doc
+    WHERE w.to_target=? AND w.is_private=0 AND w.resolved=1 AND w.from_doc!=?${blG} LIMIT 60`, base, d.path))
+    .map(b => (!unlocked && isLockedStub(b)) ? { ...b, locked: true } : b);
   const pG = unlocked ? '' : entityGuardSql('e.');
-  const persons = await all(`SELECT e.id, e.display_name, e.relation_group, e.mention_count FROM entities e
+  const persons = (await all(`SELECT e.id, e.display_name, e.relation_group, e.mention_count FROM entities e
     JOIN entity_mentions m ON m.entity_id=e.id WHERE m.doc_id=?${pG} ORDER BY e.mention_count DESC LIMIT 30`,
-    d.id, ...(unlocked ? [] : ENTITY_GUARD_PARAMS));
+    d.id, ...(unlocked ? [] : ENTITY_GUARD_PARAMS)))
+    .map(e => (!unlocked && isSecretText(e.display_name)) ? { ...e, locked: true } : e);
   const evidence = await all('SELECT kind, COUNT(*) n FROM evidence_spans WHERE doc_id=? GROUP BY kind', d.id);
   const evSnippets = await all(`SELECT id, kind, snippet FROM evidence_spans WHERE doc_id=?
     ORDER BY CASE kind WHEN 'conflict' THEN 0 WHEN 'pending' THEN 1 WHEN 'pendingCollect' THEN 2 ELSE 3 END, id
     LIMIT 80`, d.id);
   /* v8 · 3.3 五向互链：同时间事件 + 相关意象（与 store.mjs 同口径，同样受未解锁守卫约束） */
   const tlG2 = unlocked ? '' : timelineGuardSql('t');
-  const timeline = await all(`SELECT t.id, t.year, t.month, t.title, t.kind FROM timeline_events t
-    WHERE t.doc_id=?${tlG2} ORDER BY t.year ASC, COALESCE(t.month,0) ASC LIMIT 24`, d.id);
+  const timeline = (await all(`SELECT t.id, t.year, t.month, t.title, t.kind FROM timeline_events t
+    WHERE t.doc_id=?${tlG2} ORDER BY t.year ASC, COALESCE(t.month,0) ASC LIMIT 24`, d.id))
+    .map(e => (!unlocked && isLockedStub(e)) ? { ...e, locked: true } : e);
   const imG2 = unlocked ? '' : imageryGuardSql();
   const bodyPlain = String(d.body || '').replace(/\*\*/g, '');
   const imRows = await all(`SELECT i.id, i.name FROM imagery i WHERE i.candidate=0${imG2} ORDER BY i.seq`);
@@ -254,7 +270,10 @@ export const doc = async (rawPath, opts = {}) => {
     .map(im => ({ id: im.id, name: String(im.name).replace(/\*\*/g, '') }))
     .filter(im => im.name.length >= 2 && bodyPlain.includes(im.name))
     .slice(0, 24)
-    .map(im => ({ ...im, occ: occMap.get(Number(im.id)) || 0 }));
+    .map(im => {
+      const occ = occMap.get(Number(im.id)) || 0;
+      return (!unlocked && isSecretText(im.name)) ? { ...im, occ, locked: true } : { ...im, occ };
+    });
   return {
     id: d.id, path: d.path, title: d.title, domain: d.domain, doc_type: d.doc_type, stage: d.stage,
     volume: d.volume, meta: scrubMeta(J(d.meta, {}), unlocked), body: d.body, mtime: d.mtime,
@@ -276,7 +295,7 @@ export async function search(qs, group, opts = {}) {
   const chG = unlocked ? '' : chapterGuardSql();
   const tlG = unlocked ? '' : timelineGuardSql('t');
   const imG = unlocked ? '' : imageryGuardSql();
-  const volG = unlocked ? '' : ` AND code NOT IN (${SECRET_VOLUMES.map(v => `'${v}'`).join(',')})`;
+  const volG = '';
   if (!group || group === 'doc') {
     const where = terms.map(() => '(title ILIKE ? OR body ILIKE ?)').join(' AND ');
     const p = terms.flatMap(t => [`%${t}%`, `%${t}%`]);

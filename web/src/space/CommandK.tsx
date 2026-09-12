@@ -1,8 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { animate } from 'animejs';
 import { api, apiErrorMessage, type SearchGroups } from '../api';
 import { notify } from '../toast';
 import { useFocusTrap } from '../focusTrap';
+import { getHighlights, getRecentDocs, isPublicPath } from '../history';
+import { routeToPath, type SpaceKey } from '../route';
+import { isModifiedClick } from '../navClick';
+import { askUnlock } from '../unlock';
+import { prefetchDoc } from '../prefetch';
+import { copyPermalink } from '../cite';
 
 /**
  * ⌘K / Ctrl+K 全局检索 · 六分组全部可达（v3.2）
@@ -17,7 +23,29 @@ type Act =
   | { t: 'chapter'; code: string; seq: number | null; docPath: string | null; label: string }
   | { t: 'questionnaire'; docPath: string; label: string }
   /* v8 · 3.4 检索历史（v3 §3.3 要求）：空输入时列出最近检索词，↑↓ 选择、Enter 回填重检 */
-  | { t: 'hist'; q: string; label: string };
+  | { t: 'hist'; q: string; label: string }
+  | { t: 'recent'; path: string; label: string }
+  | { t: 'gate'; label: string }
+  | { t: 'cmd'; id: string; label: string; hint: string }
+  | { t: 'hl'; path: string; heading: string; snippet: string; label: string };
+
+const CMDS: { id: string; label: string; hint: string }[] = [
+  { id: 'archive', label: '去原文档案馆', hint: 'g a' },
+  { id: 'stars', label: '去记忆恒星', hint: 'g h' },
+  { id: 'river', label: '去时间之河', hint: 'g r' },
+  { id: 'graph', label: '去人物星图', hint: 'g p' },
+  { id: 'study', label: '去五卷书房', hint: 'g y' },
+  { id: 'themes', label: '去主题域', hint: 'g t' },
+  { id: 'voices', label: '去他者之声', hint: 'g v' },
+  { id: 'museum', label: '去意象博物馆', hint: 'g m' },
+  { id: 'lighthouse', label: '去证据灯塔', hint: 'g l' },
+  { id: 'copy', label: '复制本页深链', hint: 'c' },
+  { id: 'edit', label: '编辑本篇', hint: 'e' },
+  { id: 'ai', label: '打开代写', hint: '' },
+  { id: 'prefs', label: '打开偏好', hint: '' },
+  { id: 'theme', label: '切换纸色 / 墨夜', hint: '' },
+  { id: 'unlock', label: '打开绝密档案', hint: '' },
+];
 
 const HIST_KEY = 'mneme-ck-history';
 const HIST_MAX = 8;
@@ -36,7 +64,30 @@ function Group({ name, greek }: { name: string; greek: string }) {
   return <p className="ck-gname"><span className="greek">{greek}</span>{name}</p>;
 }
 
-export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, onOpenImagery, onOpenVolume, onOpenChapter }: {
+function CkHit({ href, ix, on, onHover, onPick, children }: {
+  href: string;
+  ix: number;
+  on: boolean;
+  onHover: () => void;
+  onPick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      id={`ck-opt-${ix}`}
+      role="option"
+      aria-selected={on}
+      className={`ck-item ${on ? 'on' : ''}`}
+      onMouseEnter={onHover}
+      onClick={e => { if (isModifiedClick(e)) return; e.preventDefault(); onPick(); }}
+    >
+      {children}
+    </a>
+  );
+}
+
+export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, onOpenImagery, onOpenVolume, onOpenChapter, onGoSpace, onToggleTheme }: {
   open: boolean;
   onClose: () => void;
   onOpenDoc: (path: string, h?: string, ev?: number, q?: string) => void;
@@ -45,6 +96,8 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
   onOpenImagery: (id: number) => void;
   onOpenVolume: (code: string) => void;
   onOpenChapter: (code: string, seq: number) => void;
+  onGoSpace?: (key: SpaceKey) => void;
+  onToggleTheme?: () => void;
 }) {
   const [q, setQ] = useState('');
   const [groups, setGroups] = useState<SearchGroups | null>(null);
@@ -65,6 +118,24 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
     if (t && document.contains(t)) t.focus({ preventScroll: true });
     else (document.querySelector('.rail-space.on') as HTMLElement | null)?.focus({ preventScroll: true });
   };
+
+  useEffect(() => {
+    if (!open) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const sync = () => {
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty('--vv-kb', `${inset}px`);
+    };
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+    sync();
+    return () => {
+      vv.removeEventListener('resize', sync);
+      vv.removeEventListener('scroll', sync);
+      document.documentElement.style.removeProperty('--vv-kb');
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -100,20 +171,50 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
   }, [q, open]);
 
   const flat: Act[] = [];
-  /* 空输入 → 最近检索（同样可 ↑↓ / Enter） */
-  if (!q.trim()) hist.forEach(h => flat.push({ t: 'hist', q: h, label: h }));
-  if (groups) {
-    (groups.doc ?? []).slice(0, 6).forEach(d => flat.push({ t: 'doc', path: d.path, label: d.title, sn: d.sn || '' }));
-    (groups.person ?? []).slice(0, 4).forEach(p => flat.push({ t: 'person', id: p.id, label: `${p.display_name}（${p.relation_group}·${p.mention_count}次）` }));
-    (groups.timeline ?? []).slice(0, 3).forEach(t => flat.push({ t: 'river', year: t.year, eventId: t.id, label: `${t.year} ${t.title}` }));
-    (groups.imagery ?? []).slice(0, 2).forEach(i => flat.push({ t: 'imagery', id: i.id, label: `意象·${i.name}` }));
-    (groups.volume ?? []).slice(0, 3).forEach(v => flat.push({
-      t: 'chapter', code: v.code,
-      seq: v.typ === 'chapter' ? (v.seq ?? null) : null,
-      docPath: v.doc_path ?? null,
-      label: `${v.typ === 'chapter' ? '章节' : '卷'}·${v.title}`,
-    }));
-    (groups.questionnaire ?? []).slice(0, 2).forEach(qq => flat.push({ t: 'questionnaire', docPath: qq.doc_path, label: `问卷·${qq.respondent_label}` }));
+  const qn = q.trim();
+  const qLow = qn.toLowerCase();
+  const cmdHits = CMDS.filter(c =>
+    !qn
+    || c.label.includes(qn)
+    || c.label.toLowerCase().includes(qLow)
+    || c.id.toLowerCase().includes(qLow)
+    || c.hint.toLowerCase().includes(qLow),
+  );
+  /* 空输入 → 最近检索（同样可 ↑↓ / Enter）；有输入时命令仍可被滤出 */
+  const recents = !qn
+    ? getRecentDocs().filter(d => isPublicPath(d.path)).slice(0, 5)
+    : [];
+  const marks = !qn ? getHighlights().slice(0, 3) : [];
+  cmdHits.forEach(c => flat.push({ t: 'cmd', id: c.id, label: c.label, hint: c.hint }));
+  if (!qn) {
+    hist.forEach(h => flat.push({ t: 'hist', q: h, label: h }));
+    recents.forEach(d => flat.push({ t: 'recent', path: d.path, label: d.title }));
+    marks.forEach(h => flat.push({ t: 'hl', path: h.path, heading: h.heading, snippet: h.snippet, label: h.snippet }));
+  }
+  if (qn && groups) {
+    (groups.doc ?? []).slice(0, 6).forEach(d => flat.push(d.locked
+      ? { t: 'gate', label: `${d.title}（绝密）` }
+      : { t: 'doc', path: d.path, label: d.title, sn: d.sn || '' }));
+    (groups.person ?? []).slice(0, 4).forEach(p => flat.push(p.locked
+      ? { t: 'gate', label: `${p.display_name}（绝密档案）` }
+      : { t: 'person', id: p.id, label: `${p.display_name}（${p.relation_group}·${p.mention_count}次）` }));
+    (groups.timeline ?? []).slice(0, 3).forEach(t => flat.push(t.locked
+      ? { t: 'gate', label: `${t.year} ${t.title}（绝密）` }
+      : { t: 'river', year: t.year, eventId: t.id, label: `${t.year} ${t.title}` }));
+    (groups.imagery ?? []).slice(0, 2).forEach(i => flat.push(i.locked
+      ? { t: 'gate', label: `意象·${i.name}（绝密）` }
+      : { t: 'imagery', id: i.id, label: `意象·${i.name}` }));
+    (groups.volume ?? []).slice(0, 3).forEach(v => flat.push(v.locked || v.code === 'V2' || v.code === 'V3'
+      ? { t: 'gate', label: `${v.typ === 'chapter' ? '章节' : '卷'}·${v.title}（绝密）` }
+      : {
+        t: 'chapter', code: v.code,
+        seq: v.typ === 'chapter' ? (v.seq ?? null) : null,
+        docPath: v.doc_path ?? null,
+        label: `${v.typ === 'chapter' ? '章节' : '卷'}·${v.title}`,
+      }));
+    (groups.questionnaire ?? []).slice(0, 2).forEach(qq => flat.push(qq.locked || !qq.doc_path
+      ? { t: 'gate', label: qq.respondent_label ? `问卷·${qq.respondent_label}（绝密）` : '绝密问卷' }
+      : { t: 'questionnaire', docPath: qq.doc_path, label: `问卷·${qq.respondent_label}` }));
   }
 
   /* 只有真正「打开了东西」才记历史：单纯的输入不算 */
@@ -128,6 +229,20 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
   };
   const run = (a: Act) => {
     if (a.t === 'hist') { setQ(a.q); setCursor(0); inputRef.current?.focus(); return; } // 回填重检，面板不关
+    if (a.t === 'recent') { close(); onOpenDoc(a.path); return; }
+    if (a.t === 'hl') { close(); onOpenDoc(a.path, a.heading || undefined, undefined, a.snippet.slice(0, 48)); return; }
+    if (a.t === 'cmd') {
+      close();
+      if (a.id === 'copy') copyPermalink();
+      else if (a.id === 'edit') window.dispatchEvent(new CustomEvent('mneme:edit'));
+      else if (a.id === 'ai') window.dispatchEvent(new CustomEvent('mneme:ai'));
+      else if (a.id === 'prefs') window.dispatchEvent(new CustomEvent('mneme:prefs'));
+      else if (a.id === 'theme') onToggleTheme?.();
+      else if (a.id === 'unlock') askUnlock();
+      else if (onGoSpace) onGoSpace(a.id as SpaceKey);
+      return;
+    }
+    if (a.t === 'gate') { close(); askUnlock(); return; }
     remember(q);
     close();
     const hitQ = (q.trim() || (a.t === 'doc' ? a.sn : '')).slice(0, 48) || undefined;
@@ -173,7 +288,7 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
       <div ref={boxRef} className="ck glass" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="检索全库">
         <input
           ref={inputRef} className="ck-input" value={q}
-          placeholder="检索全库：文档 · 人物 · 时间线 · 意象 · 卷章 · 问卷"
+          placeholder="检索全库，或选择一条命令…"
           onChange={e => setQ(e.target.value)}
           role="combobox"
           aria-autocomplete="list"
@@ -182,67 +297,196 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
           aria-activedescendant={flat.length ? `ck-opt-${cursor}` : undefined}
         />
         <div className="ck-list" ref={listRef} id="ck-listbox" role="listbox" aria-label="检索结果">
+          {cmdHits.length > 0 && (
+            <>
+              <p className="ck-gname"><span className="greek">ΕΝΤΟΛΗ</span>命令</p>
+              {cmdHits.map(c => {
+                idx += 1;
+                const ix = idx;
+                return (
+                  <button key={c.id} id={`ck-opt-${ix}`} role="option" aria-selected={cursor === ix}
+                    className={`ck-item ${cursor === ix ? 'on' : ''}`}
+                    onMouseEnter={() => setCursor(ix)} onClick={() => run({ t: 'cmd', id: c.id, label: c.label, hint: c.hint })}>
+                    <b>{c.label}</b><span>{c.hint || '动作'}</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
           {!q.trim() && hist.length > 0 && (
             <>
               <p className="ck-gname">
                 <span className="greek">ΑΝΑΜΝΗΣΙΣ</span>最近检索
                 <button className="ck-clear" onClick={() => { setHist([]); saveHist([]); setCursor(0); }}>清除</button>
               </p>
-              {hist.map((h, i) => (
-                <button key={h} id={`ck-opt-${i}`} role="option" aria-selected={cursor === i} className={`ck-item ${cursor === i ? 'on' : ''}`}
-                  onMouseEnter={() => setCursor(i)} onClick={() => run({ t: 'hist', q: h, label: h })}>
-                  <b>{h}</b><span>重新检索</span>
-                </button>
-              ))}
+              {hist.map(h => {
+                idx += 1;
+                const ix = idx;
+                return (
+                  <button key={h} id={`ck-opt-${ix}`} role="option" aria-selected={cursor === ix} className={`ck-item ${cursor === ix ? 'on' : ''}`}
+                    onMouseEnter={() => setCursor(ix)} onClick={() => run({ t: 'hist', q: h, label: h })}>
+                    <b>{h}</b><span>重新检索</span>
+                  </button>
+                );
+              })}
             </>
           )}
-          {!q.trim() && hist.length === 0 && <p className="ck-empty">输入以检索全库 · 六类线索均可直达</p>}
+          {!q.trim() && recents.length > 0 && (
+            <>
+              <p className="ck-gname"><span className="greek">ΥΛΗ</span>最近材料</p>
+              {recents.map(d => {
+                idx += 1;
+                const ix = idx;
+                return (
+                  <CkHit key={d.path} href={routeToPath({ v: 'doc', path: d.path })} ix={ix} on={cursor === ix}
+                    onHover={() => { setCursor(ix); prefetchDoc(d.path); }} onPick={() => run({ t: 'recent', path: d.path, label: d.title })}>
+                    <b>{d.title}</b><span>{d.domain} · 续读</span>
+                  </CkHit>
+                );
+              })}
+            </>
+          )}
+          {!q.trim() && marks.length > 0 && (
+            <>
+              <p className="ck-gname"><span className="greek">ΣΗΜΕΙΟΝ</span>本机划线</p>
+              {marks.map(h => {
+                idx += 1;
+                const ix = idx;
+                return (
+                  <button key={h.id} id={`ck-opt-${ix}`} role="option" aria-selected={cursor === ix}
+                    className={`ck-item ${cursor === ix ? 'on' : ''}`}
+                    onMouseEnter={() => setCursor(ix)}
+                    onClick={() => run({ t: 'hl', path: h.path, heading: h.heading, snippet: h.snippet, label: h.snippet })}>
+                    <b>{h.snippet}</b><span>{h.title}</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+          {q.trim() && groups === null && <p className="ck-empty" aria-busy="true">检索中…</p>}
           {q.trim() && flat.length === 0 && groups && <p className="ck-empty">无所检出。</p>}
-          {groups?.doc?.length ? <Group name="文档" greek="ΓΡΑΦΗ" /> : null}
-          {groups?.doc?.slice(0, 6).map(d => {
+          {q.trim() && groups?.doc?.length ? <Group name="文档" greek="ΓΡΑΦΗ" /> : null}
+          {q.trim() && groups?.doc?.slice(0, 6).map(d => {
             idx += 1;
+            const sn = (d.sn || '').replace(/\s+/g, ' ').trim();
+            if (d.locked) {
+              return (
+                <button key={d.path} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx}
+                  className={`ck-item ${cursor === idx ? 'on' : ''}`}
+                  onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'gate', label: d.title })}>
+                  <b>{d.title}</b><span>绝密档案 · 需管理员密码</span>
+                </button>
+              );
+            }
             return (
-              <button key={d.path} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx} className={`ck-item ${cursor === idx ? 'on' : ''}`}
-                onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'doc', path: d.path, label: d.title, sn: d.sn || '' })}>
+              <CkHit key={d.path} href={routeToPath({ v: 'doc', path: d.path, q: q.trim() || undefined })} ix={idx} on={cursor === idx}
+                onHover={() => { setCursor(idx); prefetchDoc(d.path); }} onPick={() => run({ t: 'doc', path: d.path, label: d.title, sn: d.sn || '' })}>
                 <b>{d.title}</b><span>{d.domain} · {d.stage}</span>
-              </button>
+                {sn ? <span className="ck-sn">{sn.slice(0, 88)}{sn.length > 88 ? '…' : ''}</span> : null}
+              </CkHit>
             );
           })}
-          {groups?.person?.length ? <Group name="人物" greek="ΠΡΟΣΩΠΑ" /> : null}
-          {groups?.person?.slice(0, 4).map(p => {
+          {q.trim() && groups?.person?.length ? <Group name="人物" greek="ΠΡΟΣΩΠΑ" /> : null}
+          {q.trim() && groups?.person?.slice(0, 4).map(p => {
             idx += 1;
+            if (p.locked) {
+              return (
+                <button key={p.id} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx}
+                  className={`ck-item ${cursor === idx ? 'on' : ''}`}
+                  onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'gate', label: p.display_name })}>
+                  <b>{p.display_name}</b><span>绝密档案 · 需管理员密码</span>
+                </button>
+              );
+            }
             return (
-              <button key={p.id} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx} className={`ck-item ${cursor === idx ? 'on' : ''}`}
-                onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'person', id: p.id, label: p.display_name })}>
+              <CkHit key={p.id} href={routeToPath({ v: 'person', id: p.id })} ix={idx} on={cursor === idx}
+                onHover={() => setCursor(idx)} onPick={() => run({ t: 'person', id: p.id, label: p.display_name })}>
                 <b>{p.display_name}</b><span>{p.relation_group} · 提及 {p.mention_count}</span>
-              </button>
+              </CkHit>
             );
           })}
-          {groups?.timeline?.length ? <Group name="时间线" greek="ΧΡΟΝΟΣ" /> : null}
-          {groups?.timeline?.slice(0, 3).map(t => {
+          {q.trim() && groups?.timeline?.length ? <Group name="时间线" greek="ΧΡΟΝΟΣ" /> : null}
+          {q.trim() && groups?.timeline?.slice(0, 3).map(t => {
             idx += 1;
+            if (t.locked) {
+              return (
+                <button key={t.id} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx}
+                  className={`ck-item ${cursor === idx ? 'on' : ''}`}
+                  onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'gate', label: t.title })}>
+                  <b>{t.year} {t.title}</b><span>绝密档案 · 需管理员密码</span>
+                </button>
+              );
+            }
             return (
-              <button key={t.id} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx} className={`ck-item ${cursor === idx ? 'on' : ''}`}
-                onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'river', year: t.year, eventId: t.id, label: t.title })}>
+              <CkHit key={t.id} href={routeToPath({ v: 'space', key: 'river', river: { y: t.year } })} ix={idx} on={cursor === idx}
+                onHover={() => setCursor(idx)} onPick={() => run({ t: 'river', year: t.year, eventId: t.id, label: t.title })}>
                 <b>{t.year} {t.title}</b><span>{t.stage} · 河上定位</span>
-              </button>
+              </CkHit>
             );
           })}
-          {(groups?.imagery?.length || groups?.volume?.length || groups?.questionnaire?.length) ? (
+          {q.trim() && (groups?.imagery?.length || groups?.volume?.length || groups?.questionnaire?.length) ? (
             <>
               <Group name="其余线索" greek="ΙΧΝΟΣ" />
               {groups?.imagery?.slice(0, 2).map(i => {
                 idx += 1;
-                return <button key={`im${i.id}`} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx} className={`ck-item ${cursor === idx ? 'on' : ''}`} onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'imagery', id: i.id, label: i.name })}><b>意象·{i.name}</b><span>{i.occ} 处登场 · 直达展柜</span></button>;
+                if (i.locked) {
+                  return (
+                    <button key={`im${i.id}`} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx}
+                      className={`ck-item ${cursor === idx ? 'on' : ''}`}
+                      onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'gate', label: i.name })}>
+                      <b>意象·{i.name}</b><span>绝密档案 · 需管理员密码</span>
+                    </button>
+                  );
+                }
+                return (
+                  <CkHit key={`im${i.id}`} href={routeToPath({ v: 'imagery', id: i.id })} ix={idx} on={cursor === idx}
+                    onHover={() => setCursor(idx)} onPick={() => run({ t: 'imagery', id: i.id, label: i.name })}>
+                    <b>意象·{i.name}</b><span>{i.occ} 处登场 · 直达展柜</span>
+                  </CkHit>
+                );
               })}
               {groups?.volume?.slice(0, 3).map((v, i2) => {
                 idx += 1;
                 const isCh = v.typ === 'chapter';
-                return <button key={`vo${v.typ}-${v.code}-${i2}`} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx} className={`ck-item ${cursor === idx ? 'on' : ''}`} onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'chapter', code: v.code, seq: isCh ? (v.seq ?? null) : null, docPath: v.doc_path ?? null, label: v.title })}><b>{isCh ? '章节' : '卷'}·{v.title}</b><span>{isCh ? '开材料链' : '开卷 · 五卷书房'}</span></button>;
+                if (v.locked || v.code === 'V2' || v.code === 'V3') {
+                  return (
+                    <button key={`vo${v.typ}-${v.code}-${i2}`} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx}
+                      className={`ck-item ${cursor === idx ? 'on' : ''}`}
+                      onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'gate', label: v.title })}>
+                      <b>{isCh ? '章节' : '卷'}·{v.title}</b><span>绝密档案 · 需管理员密码</span>
+                    </button>
+                  );
+                }
+                const href = isCh && v.seq != null
+                  ? routeToPath({ v: 'chapter', code: v.code, seq: v.seq })
+                  : v.doc_path
+                    ? routeToPath({ v: 'doc', path: v.doc_path })
+                    : routeToPath({ v: 'volume', code: v.code });
+                return (
+                  <CkHit key={`vo${v.typ}-${v.code}-${i2}`} href={href} ix={idx} on={cursor === idx}
+                    onHover={() => setCursor(idx)} onPick={() => run({ t: 'chapter', code: v.code, seq: isCh ? (v.seq ?? null) : null, docPath: v.doc_path ?? null, label: v.title })}>
+                    <b>{isCh ? '章节' : '卷'}·{v.title}</b><span>{isCh ? '开材料链' : '开卷 · 五卷书房'}</span>
+                  </CkHit>
+                );
               })}
               {groups?.questionnaire?.slice(0, 2).map(qq => {
                 idx += 1;
-                return <button key={`qu${qq.id}`} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx} className={`ck-item ${cursor === idx ? 'on' : ''}`} onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'questionnaire', docPath: qq.doc_path, label: qq.respondent_label })}><b>问卷·{qq.respondent_label}</b><span>读原卷</span></button>;
+                if (qq.locked || !qq.doc_path) {
+                  return (
+                    <button key={`qu${qq.id}`} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx}
+                      className={`ck-item ${cursor === idx ? 'on' : ''}`}
+                      onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'gate', label: '绝密问卷' })}>
+                      <b>{qq.respondent_label ? `问卷·${qq.respondent_label}` : '绝密问卷'}</b><span>绝密档案 · 需管理员密码</span>
+                    </button>
+                  );
+                }
+                const qPath = qq.doc_path;
+                return (
+                  <CkHit key={`qu${qq.id}`} href={routeToPath({ v: 'doc', path: qPath })} ix={idx} on={cursor === idx}
+                    onHover={() => setCursor(idx)} onPick={() => run({ t: 'questionnaire', docPath: qPath, label: qq.respondent_label || '问卷' })}>
+                    <b>问卷·{qq.respondent_label}</b><span>读原卷</span>
+                  </CkHit>
+                );
               })}
             </>
           ) : null}

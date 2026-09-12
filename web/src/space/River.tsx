@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { animate, stagger } from 'animejs';
 import { api, apiErrorMessage, type TimelineEvent } from '../api';
 import { notify } from '../toast';
 import { STAGE_EPOCH, YEAR_MAX, YEAR_MIN } from '../stages';
-import type { RiverQuery } from '../route';
+import { routeToPath, type RiverQuery } from '../route';
+import { isModifiedClick } from '../navClick';
+import { askUnlock } from '../unlock';
 
 /**
  * Σ2 时间之河 · v5.1「无限之河」
@@ -61,6 +63,8 @@ export function River({ onOpenDoc, focus, onFocusDone, query, onQuery }: {
   onQuery?: (q: RiverQuery | undefined) => void;
 }) {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [tlFail, setTlFail] = useState(false);
+  const [tlTick, setTlTick] = useState(0);
   const [years, setYears] = useState<{ year: number; docs: number }[]>([]);
   const [cruising, setCruising] = useState(false);
   /* v8 · 3.7 纵向列表替代视图（体验规格 §九个空间：时间之河「纵向列表替代视图」）。
@@ -171,13 +175,17 @@ export function River({ onOpenDoc, focus, onFocusDone, query, onQuery }: {
 
   useEffect(() => {
     const load = () => {
-      api.timeline(1990, 2032).then(setEvents).catch(e => notify(apiErrorMessage(e), 'error'));
+      setTlFail(false);
+      api.timeline(1990, 2032).then(rows => { setEvents(rows); setTlFail(false); }).catch(e => {
+        setTlFail(true);
+        notify(apiErrorMessage(e), 'error');
+      });
       api.yearDensity().then(setYears).catch(e => notify(apiErrorMessage(e), 'error'));
     };
     load();
     window.addEventListener('mneme:unlocked', load);
     return () => window.removeEventListener('mneme:unlocked', load);
-  }, []);
+  }, [tlTick]);
 
   useEffect(() => {
     const root = rootRef.current!;
@@ -391,16 +399,37 @@ export function River({ onOpenDoc, focus, onFocusDone, query, onQuery }: {
                 <div className="rv-litems">
                   {evs.map(ev => {
                     const refPath = ev.ref;
-                    return (
-                      <button key={ev.id} data-ev={ev.id}
-                        className={`rv-litem ${ev.kind === 'anchor' ? 'anchor' : 'bg'}`}
-                        style={{ ['--sc' as string]: STAGE_COLOR[ev.stage] || 'var(--bronze)' }}
-                        title={ev.kind === 'anchor' ? ev.title : undefined}
-                        onClick={() => { if (refPath) onOpenDoc(refPath); }}>
+                    const inner = (
+                      <>
                         <span className="rv-lwhen">{ev.year}{ev.month ? `.${String(ev.month).padStart(2, '0')}` : ''}</span>
                         <span className="rv-ltitle">{ev.title}</span>
-                        <span className="rv-lstage">{ev.stage}{refPath ? ' · 原文 →' : ''}</span>
-                      </button>
+                        <span className="rv-lstage">{ev.stage}{ev.locked ? ' · 绝密' : refPath ? ' · 原文 →' : ''}</span>
+                      </>
+                    );
+                    const cls = `rv-litem ${ev.kind === 'anchor' ? 'anchor' : 'bg'}${refPath || ev.locked ? '' : ' mute'}${ev.locked ? ' locked' : ''}`;
+                    const st = { ['--sc' as string]: STAGE_COLOR[ev.stage] || 'var(--bronze)' } as CSSProperties;
+                    if (ev.locked) {
+                      return (
+                        <button key={ev.id} type="button" data-ev={ev.id} className={cls} style={st}
+                          title="绝密档案 · 需管理员密码"
+                          onClick={() => askUnlock()}>
+                          {inner}
+                        </button>
+                      );
+                    }
+                    if (refPath) {
+                      return (
+                        <a key={ev.id} data-ev={ev.id} href={routeToPath({ v: 'doc', path: refPath })} className={cls} style={st}
+                          title={ev.kind === 'anchor' ? ev.title : undefined}
+                          onClick={e => { if (isModifiedClick(e)) return; e.preventDefault(); onOpenDoc(refPath); }}>
+                          {inner}
+                        </a>
+                      );
+                    }
+                    return (
+                      <div key={ev.id} data-ev={ev.id} className={cls} style={st} aria-disabled="true">
+                        {inner}
+                      </div>
                     );
                   })}
                 </div>
@@ -408,7 +437,16 @@ export function River({ onOpenDoc, focus, onFocusDone, query, onQuery }: {
             );
           })}
           {visible.length === 0 && (
-            <p className="rv-lempty">{events.length ? '当前筛选下没有事件。' : '暂无时间线事件。'}</p>
+            <div className="rv-lempty">
+              {tlFail ? (
+                <>
+                  <p>时间线暂时取不回来。</p>
+                  <button type="button" className="mu-ledger" onClick={() => setTlTick(n => n + 1)}>重新加载 →</button>
+                </>
+              ) : (
+                <p>{events.length ? '当前筛选下没有事件。' : '暂无时间线事件。'}</p>
+              )}
+            </div>
           )}
         </div>
       ) : (
@@ -460,22 +498,16 @@ export function River({ onOpenDoc, focus, onFocusDone, query, onQuery }: {
                       // v5.1 扇形错位：左右交替、逐层外移（±16→±29→±42…）——密集年份互不遮挡
                       const side = (i % 2 === 0 ? -1 : 1) * (16 + 13 * Math.floor(i / 2));
                       const refPath = ev.ref;
-                      return (
-                        <button
-                          key={ev.id}
-                          data-ev={ev.id}
-                          className={`rv-card ${anchor ? 'anchor' : 'bg'}`}
-                          style={{ ['--sc' as string]: STAGE_COLOR[ev.stage] || 'var(--bronze)', ['--ph' as string]: `${phase}px`, ['--side' as string]: `${side}px` }}
-                          title={anchor ? ev.title : undefined}
-                          onPointerDown={e => e.stopPropagation()} // 卡片内按下不触发拖拽，点击直达原文
-                          onClick={e => { if (refPath) { e.stopPropagation(); onOpenDoc(refPath); } }}
-                        >
+                      const cardCls = `rv-card ${anchor ? 'anchor' : 'bg'}${refPath || ev.locked ? '' : ' mute'}${ev.locked ? ' locked' : ''}`;
+                      const cardSt = { ['--sc' as string]: STAGE_COLOR[ev.stage] || 'var(--bronze)', ['--ph' as string]: `${phase}px`, ['--side' as string]: `${side}px` } as CSSProperties;
+                      const cardInner = (
+                        <>
                           <span className="rv-pin" />
                           {anchor ? (
                             <span className="rv-body surface">
                               <span className="rv-when">{ev.year}{ev.month ? `·${String(ev.month).padStart(2, '0')}` : ''}</span>
                               <b className="rv-title">{ev.title}</b>
-                              <span className="rv-stage">{ev.stage}{refPath ? ' · 原文 →' : ''}</span>
+                              <span className="rv-stage">{ev.stage}{ev.locked ? ' · 绝密' : refPath ? ' · 原文 →' : ''}</span>
                             </span>
                           ) : (
                             <span className="rv-ribbon">
@@ -483,7 +515,56 @@ export function River({ onOpenDoc, focus, onFocusDone, query, onQuery }: {
                               <span className="rv-title">{ev.title}</span>
                             </span>
                           )}
-                        </button>
+                        </>
+                      );
+                      if (ev.locked) {
+                        return (
+                          <button
+                            type="button"
+                            key={ev.id}
+                            data-ev={ev.id}
+                            className={cardCls}
+                            style={cardSt}
+                            title="绝密档案 · 需管理员密码"
+                            onPointerDown={e => e.stopPropagation()}
+                            onClick={e => { e.stopPropagation(); askUnlock(); }}
+                          >
+                            {cardInner}
+                          </button>
+                        );
+                      }
+                      if (refPath) {
+                        return (
+                          <a
+                            key={ev.id}
+                            data-ev={ev.id}
+                            href={routeToPath({ v: 'doc', path: refPath })}
+                            className={cardCls}
+                            style={cardSt}
+                            title={anchor ? ev.title : undefined}
+                            onPointerDown={e => e.stopPropagation()}
+                            onClick={e => {
+                              if (isModifiedClick(e)) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onOpenDoc(refPath);
+                            }}
+                          >
+                            {cardInner}
+                          </a>
+                        );
+                      }
+                      return (
+                        <div
+                          key={ev.id}
+                          data-ev={ev.id}
+                          className={cardCls}
+                          style={cardSt}
+                          aria-disabled="true"
+                          onPointerDown={e => e.stopPropagation()}
+                        >
+                          {cardInner}
+                        </div>
                       );
                     })}
                   </div>

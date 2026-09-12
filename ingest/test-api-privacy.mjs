@@ -29,17 +29,12 @@ const PRIV_RE = /私人资料|隐私\//;
 const QN_MARK = '问卷作答全文';
 const PARENT_LABELS = ['母亲', '父亲', '妈妈', '爸爸'];
 
-/* 需要按「私密路径」判定的字段名 */
+/* 需要按「私密路径」判定的字段名。绝密姓名可以出现在公开层路径（锁定档可点开）。 */
 const IDENT_KEYS = ['path', 'doc_path', 'std_id', 'role_doc_path', 'doc', 'to_target', 'from_doc'];
-/* 需要按「绝密姓名」判定的字段名 */
+/* 问卷作答全文文档型实体不得被枚举（父母卷按设计公开） */
 const NAME_KEYS = ['display_name', 'title', 'name', 'respondent_label'];
-/* 需要整体脱敏的字段名（元数据，必须完全干净） */
+/* 需要整体脱敏的字段名（元数据不得带私密路径 / 问卷全文路径） */
 const META_KEYS = ['meta'];
-/* 检索摘要：只断言「绝密姓名」不得被高亮出来。
-   摘要取自**公开文档的正文**，而作者自己的公开正文里会讨论 `私人资料/` 治理规则、
-   也会写 `[[问卷回收/…母亲问卷作答全文|母亲卷]]` 这类指向公开文档的链接——
-   那是作者的内容，不是 API 的泄漏。真正的门禁是：目标文档本身取不到（403/404）。 */
-const SNIPPET_KEYS = ['sn', 'snippet'];
 
 /** 单条实体探测用 id：入库会重排主键，禁止写死。不向 stdout 打印姓名。 */
 function probeHiddenEntityIds() {
@@ -86,21 +81,31 @@ function scan(value, hits = [], keyPath = '') {
   const key = keyPath.split('.').pop().replace(/\[\d+\]$/, '');
   if (IDENT_KEYS.includes(key)) {
     if (PRIV_RE.test(value)) hits.push(`${keyPath} 含私密路径: ${value.slice(0, 80)}`);
-    else if (SECRET_NAME && value.includes(SECRET_NAME)) hits.push(`${keyPath} 含绝密姓名: ${value.slice(0, 80)}`);
   } else if (NAME_KEYS.includes(key)) {
-    if (SECRET_NAME && value.includes(SECRET_NAME)) hits.push(`${keyPath} 含绝密姓名: ${value.slice(0, 80)}`);
-    /* 问卷作答全文文档型实体不得被枚举（父母卷按设计公开，不在此列） */
     if (value.includes(QN_MARK) && ![...PARENT_LABELS].some(l => value.startsWith(l))) {
       hits.push(`${keyPath} 暴露问卷作答全文实体: ${value.slice(0, 80)}`);
     }
   } else if (META_KEYS.includes(key)) {
-    if (PRIV_RE.test(value) || (SECRET_NAME && value.includes(SECRET_NAME)) || value.includes(QN_MARK)) {
+    if (PRIV_RE.test(value) || value.includes(QN_MARK)) {
       hits.push(`${keyPath} 未脱敏: ${value.slice(0, 80)}`);
     }
-  } else if (SNIPPET_KEYS.includes(key)) {
-    /* 摘要只查绝密姓名（公开正文本身可以提到私密治理规则与公开问卷链接） */
-    if (SECRET_NAME && value.includes(SECRET_NAME)) hits.push(`${keyPath} 含绝密姓名: ${value.slice(0, 80)}`);
   }
+  return hits;
+}
+
+/** 锁定档可以露姓名/标题，不得带正文、摘要、私密路径字段 */
+function stubLeak(value, hits = []) {
+  if (value == null) return hits;
+  if (Array.isArray(value)) { value.forEach(v => stubLeak(v, hits)); return hits; }
+  if (typeof value !== 'object') return hits;
+  if (value.locked) {
+    if (value.sn || value.snippet) hits.push('锁定档带摘要');
+    if (value.detail) hits.push('锁定档带 detail');
+    if (value.ref || value.ref_title) hits.push('锁定档带原文路径');
+    if (value.std_id || value.role_doc_path || value.doc) hits.push('锁定档带 std_id/doc');
+    if (typeof value.body === 'string' && value.body.length) hits.push('锁定档带正文');
+  }
+  for (const v of Object.values(value)) stubLeak(v, hits);
   return hits;
 }
 
@@ -144,14 +149,17 @@ async function main() {
     BASE = `http://127.0.0.1:${port}`;
     child = spawn(process.execPath, ['--experimental-sqlite', 'server/server.mjs'], {
       cwd: ROOT,
-      env: { ...process.env, PORT: String(port), MNEME_LOG: '0', MNEME_DB: path.join(HERE, 'mneme.db') },
+      env: { ...process.env, PORT: String(port), MNEME_LOG: '0', MNEME_WATCH: '0', MNEME_DB: path.join(HERE, 'mneme.db') },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     child.stderr.on('data', d => { const s = String(d); if (!/ExperimentalWarning|trace-warnings/.test(s)) process.stderr.write(`[server] ${s}`); });
     child.stdout.on('data', () => {});
   }
   const health = await waitHealth(BASE);
-  console.log(`目标：${BASE}  (mode=${health.mode}, build=${health.build ?? '-'})`);
+  console.log(`目标：${BASE}  (mode=${health.mode}, build=${health.build ?? '-'}, strict=${health.strict ? 'on' : 'off'})`);
+  if (!process.env.MNEME_BASE) {
+    ok('本机自起服务 STRICT 默认关闭', health.strict === false);
+  }
   await login();
   console.log('已登录（持访问口令、未解锁绝密门）\n');
 
@@ -159,18 +167,27 @@ async function main() {
   {
     const { status, body } = await api('/api/entities?limit=1000');
     const rows = Array.isArray(body) ? body : [];
-    ok('GET /api/entities 无私密/绝密实体', status === 200 && rows.length > 0 && scan(rows).length === 0,
+    const leaks = [...scan(rows), ...stubLeak(rows)];
+    ok('GET /api/entities 无私密层 / 锁定档无正文', status === 200 && rows.length > 0 && leaks.length === 0,
       `(${rows.length} 条)`);
-    if (scan(rows).length) console.log('     ' + scan(rows).slice(0, 3).join('\n     '));
+    if (leaks.length) console.log('     ' + leaks.slice(0, 3).join('\n     '));
+    if (SECRET_NAME) {
+      const locked = rows.filter(e => e.locked && String(e.display_name || '').includes(SECRET_NAME));
+      ok('GET /api/entities 绝密人物以锁定档出现', locked.length > 0, `(${locked.length} 条)`);
+    }
   }
 
   /* ---------- 2. 星图 ---------- */
   {
     const { status, body } = await api('/api/graph');
-    const hits = scan(body);
-    ok('GET /api/graph 无私密/绝密节点', status === 200 && hits.length === 0,
+    const leaks = [...scan(body), ...stubLeak(body)];
+    ok('GET /api/graph 无私密路径 / 锁定星无 doc', status === 200 && leaks.length === 0,
       `(${body?.nodes?.length ?? '?'} 节点 / ${body?.edges?.length ?? '?'} 边)`);
-    if (hits.length) console.log('     ' + hits.slice(0, 3).join('\n     '));
+    if (leaks.length) console.log('     ' + leaks.slice(0, 3).join('\n     '));
+    if (SECRET_NAME) {
+      const locked = (body?.nodes || []).filter(n => n.locked && String(n.name || '').includes(SECRET_NAME));
+      ok('GET /api/graph 绝密人物以锁定星出现', locked.length > 0, `(${locked.length} 颗)`);
+    }
   }
 
   /* ---------- 3. 单条实体（枚举绕过） ---------- */
@@ -195,19 +212,23 @@ async function main() {
   if (SECRET_NAME) searches.splice(1, 0, ['姓名', SECRET_NAME]);
   for (const [label, q] of searches) {
     const { status, body } = await api(`/api/search?q=${encodeURIComponent(q)}`);
-    const hits = scan(body?.groups ?? {});
-    ok(`GET /api/search（${label}）无残留`, status === 200 && hits.length === 0);
+    const hits = [...scan(body?.groups ?? {}), ...stubLeak(body?.groups ?? {})];
+    ok(`GET /api/search（${label}）无私密层 / 锁定档无摘要`, status === 200 && hits.length === 0);
     if (hits.length) console.log('     ' + hits.slice(0, 3).join('\n     '));
+    if (SECRET_NAME && q === SECRET_NAME) {
+      const people = body?.groups?.person || [];
+      ok('  └ 姓名检索得到锁定人物', people.some(p => p.locked && String(p.display_name || '').includes(SECRET_NAME)));
+    }
   }
 
   /* ---------- 5. 时间线 ---------- */
   {
     const { status, body } = await api('/api/timeline');
     const rows = Array.isArray(body) ? body : [];
-    const v23 = rows.filter(e => ['V2', 'V3'].includes(e.volume));
     const sec = SECRET_NAME ? rows.filter(e => String(e.title || '').includes(SECRET_NAME)) : [];
-    ok('GET /api/timeline 无 V2/V3 事件', status === 200 && v23.length === 0, `(${rows.length} 条)`);
-    if (SECRET_NAME) ok('GET /api/timeline 无绝密姓名', sec.length === 0);
+    const stubHits = stubLeak(rows);
+    ok('GET /api/timeline 锁定档无 detail/ref', status === 200 && stubHits.length === 0, `(${rows.length} 条)`);
+    if (SECRET_NAME && sec.length) ok('GET /api/timeline 点名事件均锁定', sec.every(e => e.locked && !e.detail && !e.ref));
   }
   {
     const { status } = await api('/api/timeline?stage=' + encodeURIComponent('高中'));
@@ -218,7 +239,8 @@ async function main() {
   {
     const { status, body } = await api('/api/domains/' + encodeURIComponent('成长叙事') + '/docs');
     const hits = scan(body);
-    ok('GET /api/domains/:name/docs 无问卷全文/私密/meta 残留', status === 200 && hits.length === 0,
+    ok('GET /api/domains/:name/docs 无私密层/问卷全文/meta 残留', status === 200 && hits.length === 0
+      && stubLeak(body).length === 0,
       `(${body?.total ?? '?'} 篇)`);
     if (hits.length) console.log('     ' + hits.slice(0, 3).join('\n     '));
   }
@@ -256,7 +278,9 @@ async function main() {
   {
     const { status, body } = await api('/api/imagery');
     const rows = Array.isArray(body) ? body : [];
-    ok('GET /api/imagery 无绝密意象', status === 200 && (!SECRET_NAME || !rows.some(i => String(i.name || '').includes(SECRET_NAME))), `(${rows.length} 条)`);
+    const secretIm = SECRET_NAME ? rows.filter(i => String(i.name || '').includes(SECRET_NAME)) : [];
+    ok('GET /api/imagery 绝密意象以锁定档出现', status === 200 && (!SECRET_NAME || (secretIm.length > 0 && secretIm.every(i => i.locked))), `(${rows.length} 条)`);
+    ok('GET /api/imagery 锁定档无泄漏字段', stubLeak(rows).length === 0);
     const one = await api('/api/imagery/26');
     ok('GET /api/imagery/26（绝密意象）→ 403', one.status === 403, `得到 ${one.status}`);
   }
@@ -284,8 +308,30 @@ async function main() {
     const { status, body } = await api('/api/queue');
     const rows = Array.isArray(body) ? body : [];
     const hits = scan(body);
-    ok('GET /api/queue 无私密路径/绝密姓名', status === 200 && hits.length === 0, `(${rows.length} 条)`);
+    ok('GET /api/queue 无私密路径 / 锁定档无摘要', status === 200 && hits.length === 0 && stubLeak(rows).length === 0, `(${rows.length} 条)`);
     if (hits.length) console.log('     ' + hits.slice(0, 3).join('\n     '));
+  }
+
+  /* ---------- 9d. 写作台：未授权不得写；私密层不可取源 ---------- */
+  {
+    const pub = '/api/source/' + encodeURIComponent('问卷回收/2026-09-05-母亲问卷作答全文.md');
+    const priv = '/api/source/' + encodeURIComponent('私人资料/人物/刘佑林/刘佑林朋友圈148则完整转录与索引-2018至2024（私密）.md');
+    const g = await api(priv);
+    ok('GET /api/source（私密层）→ 404', g.status === 404, `得到 ${g.status}`);
+    const put = await fetch(`${BASE}/api/source/` + encodeURIComponent('问卷回收/2026-09-05-母亲问卷作答全文.md'), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ text: 'should-not-write' }),
+    });
+    ok('PUT /api/source 无管理口令 → 403', put.status === 403, `得到 ${put.status}`);
+    const ai = await fetch(`${BASE}/api/ai/draft`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ path: '私人资料/x.md', text: 'hi', mode: 'continue' }),
+    });
+    ok('POST /api/ai/draft 无管理口令 → 403', ai.status === 403, `得到 ${ai.status}`);
+    const st = await api('/api/admin/status');
+    ok('GET /api/admin/status 默认未授权', st.status === 200 && st.body?.admin === false);
+    const pubGet = await api(pub);
+    ok('GET /api/source（公开父母卷）可读', pubGet.status === 200 && typeof pubGet.body?.text === 'string');
   }
 
   /* ---------- 10. 解锁后应当恢复（确认不是「一刀切锁死」） ---------- */
@@ -316,7 +362,7 @@ main()
   .then(() => {
     console.log(fails.length
       ? `\n❌ API 级红线测试失败 ${fails.length} 项，禁止交付：\n   - ${fails.join('\n   - ')}`
-      : '\n✅ API 级红线测试全部通过（未解锁状态下无任何私密/绝密内容可经 API 取得）');
+      : '\n✅ API 级红线测试全部通过（私密层不可枚举；绝密以锁定档出现，正文仍 403）');
     process.exitCode = fails.length ? 1 : 0;
   })
   .catch((e) => {
