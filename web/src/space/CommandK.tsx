@@ -102,6 +102,9 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
 }) {
   const [q, setQ] = useState('');
   const [groups, setGroups] = useState<SearchGroups | null>(null);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'fail'>('idle');
+  const [chip, setChip] = useState<'all' | 'doc' | 'person' | 'timeline' | 'imagery' | 'volume' | 'questionnaire'>('all');
+  const [retryTick, setRetryTick] = useState(0);
   const [cursor, setCursor] = useState(0);
   const [hist, setHist] = useState<string[]>(loadHist);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -156,7 +159,7 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
       if (el && el !== document.body) triggerRef.current = el; // ⌘K 唤起自按钮/链接时记住
       else triggerRef.current = document.querySelector('.ck-hint'); // 键盘唤起无触发点 → 归给常驻入口
     }
-    setQ(''); setGroups(null); setCursor(0);
+    setQ(''); setGroups(null); setStatus('idle'); setChip('all'); setCursor(0);
     closing.current = false;
     setTimeout(() => inputRef.current?.focus(), 30);
     setTimeout(() => armSnapshot(boxRef.current), 400);
@@ -169,31 +172,35 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
   useEffect(() => {
     if (!open) return;
     const query = q.trim();
-    if (!query) { setGroups(null); return; }
+    if (!query || query.startsWith('>')) { setGroups(null); setStatus('idle'); return; }
+    setStatus('loading');
     const t = setTimeout(() => {
       const seq = ++seqRef.current;
-      api.search(query).then(r => {
-        if (seq !== seqRef.current) return; // 过期响应丢弃，旧结果不覆盖新输入
-        setGroups(r.groups); setCursor(0);
+      const group = chip === 'all' ? undefined : chip;
+      api.search(query, group).then(r => {
+        if (seq !== seqRef.current) return;
+        setGroups(r.groups); setStatus('ok'); setCursor(0);
       }).catch(e => {
-        if (seq !== seqRef.current) return; // 过期响应丢弃
-        setGroups({});
-        notify(apiErrorMessage(e), 'error'); // 「无结果」与「检索失败」不再混为一谈
+        if (seq !== seqRef.current) return;
+        setGroups(null); setStatus('fail');
+        notify(apiErrorMessage(e), 'error');
       });
     }, 250);
     return () => clearTimeout(t);
-  }, [q, open]);
+  }, [q, open, chip, retryTick]);
 
   const flat: Act[] = [];
   const qn = q.trim();
   const qLow = qn.toLowerCase();
-  const cmdHits = CMDS.filter(c =>
-    !qn
-    || c.label.includes(qn)
-    || c.label.toLowerCase().includes(qLow)
-    || c.id.toLowerCase().includes(qLow)
-    || c.hint.toLowerCase().includes(qLow),
-  );
+  const cmdMode = qn.startsWith('>');
+  const cmdNeedle = cmdMode ? qn.slice(1).trim().toLowerCase() : '';
+  const cmdHits = cmdMode ? CMDS.filter(c =>
+    !cmdNeedle
+    || c.label.includes(cmdNeedle)
+    || c.label.toLowerCase().includes(cmdNeedle)
+    || c.id.toLowerCase().includes(cmdNeedle)
+    || c.hint.toLowerCase().includes(cmdNeedle),
+  ) : [];
   /* 空输入 → 最近检索（同样可 ↑↓ / Enter）；有输入时命令仍可被滤出 */
   const recents = !qn
     ? getRecentDocs().filter(d => isPublicPath(d.path)).slice(0, 5)
@@ -213,20 +220,21 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
     recents.forEach(d => flat.push({ t: 'recent', path: d.path, label: d.title }));
     marks.forEach(h => flat.push({ t: 'hl', path: h.path, heading: h.heading, snippet: h.snippet, label: h.snippet }));
   }
+  const take = (n: number) => (chip === 'all' ? n : 80);
   if (qn && groups) {
-    (groups.doc ?? []).slice(0, 6).forEach(d => flat.push(d.locked
+    (groups.doc ?? []).slice(0, take(6)).forEach(d => flat.push(d.locked
       ? { t: 'gate', label: `${d.title}（绝密）` }
       : { t: 'doc', path: d.path, label: d.title, sn: d.sn || '' }));
-    (groups.person ?? []).slice(0, 4).forEach(p => flat.push(p.locked
+    (groups.person ?? []).slice(0, take(4)).forEach(p => flat.push(p.locked
       ? { t: 'gate', label: `${p.display_name}（绝密档案）` }
       : { t: 'person', id: p.id, label: `${p.display_name}（${p.relation_group}·${p.mention_count}次）` }));
-    (groups.timeline ?? []).slice(0, 3).forEach(t => flat.push(t.locked
+    (groups.timeline ?? []).slice(0, take(3)).forEach(t => flat.push(t.locked
       ? { t: 'gate', label: `${t.year} ${t.title}（绝密）` }
       : { t: 'river', year: t.year, eventId: t.id, label: `${t.year} ${t.title}` }));
-    (groups.imagery ?? []).slice(0, 2).forEach(i => flat.push(i.locked
+    (groups.imagery ?? []).slice(0, take(2)).forEach(i => flat.push(i.locked
       ? { t: 'gate', label: `意象·${i.name}（绝密）` }
       : { t: 'imagery', id: i.id, label: `意象·${i.name}` }));
-    (groups.volume ?? []).slice(0, 3).forEach(v => flat.push(v.locked
+    (groups.volume ?? []).slice(0, take(3)).forEach(v => flat.push(v.locked
       ? { t: 'gate', label: `${v.typ === 'chapter' ? '章节' : '部'}·${v.title}（绝密）` }
       : {
         t: 'chapter', code: v.code,
@@ -234,7 +242,7 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
         docPath: v.doc_path ?? null,
         label: `${v.typ === 'chapter' ? '章节' : '部'}·${v.title}`,
       }));
-    (groups.questionnaire ?? []).slice(0, 2).forEach(qq => flat.push(qq.locked || !qq.doc_path
+    (groups.questionnaire ?? []).slice(0, take(2)).forEach(qq => flat.push(qq.locked || !qq.doc_path
       ? { t: 'gate', label: qq.respondent_label ? `问卷·${qq.respondent_label}（绝密）` : '绝密问卷' }
       : { t: 'questionnaire', docPath: qq.doc_path, label: `问卷·${qq.respondent_label}` }));
   }
@@ -273,17 +281,16 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
     if (a.t === 'gate') { close(); askUnlock(); return; }
     remember(q);
     close();
-    const hitQ = (q.trim() || (a.t === 'doc' ? a.sn : '')).slice(0, 48) || undefined;
-    if (a.t === 'doc') onOpenDoc(a.path, undefined, undefined, hitQ);
+    if (a.t === 'doc') onOpenDoc(a.path);
     else     if (a.t === 'person') { recordPerson({ id: a.id, name: a.label }); onOpenPerson(a.id); }
     else if (a.t === 'river') onOpenRiver(a.year, a.eventId);
     else if (a.t === 'imagery') { recordImagery({ id: a.id, name: a.label.replace(/^意象·/, '') }); onOpenImagery(a.id); }
     else if (a.t === 'chapter') {
       if (a.seq != null) onOpenChapter(a.code, a.seq);      // 章节命中 → 直达材料链面板
-      else if (a.docPath) onOpenDoc(a.docPath, undefined, undefined, hitQ);
+      else if (a.docPath) onOpenDoc(a.docPath);
       else onOpenVolume(a.code);                            // 部命中 → 书房开门
     }
-    else if (a.t === 'questionnaire') onOpenDoc(a.docPath, undefined, undefined, hitQ);
+    else if (a.t === 'questionnaire') onOpenDoc(a.docPath);
   };
 
   useEffect(() => {
@@ -316,7 +323,7 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
       <div ref={boxRef} className="ck glass chrome" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="检索全库">
         <input
           ref={inputRef} className="ck-input" value={q}
-          placeholder="检索全库，或选择一条命令…"
+          placeholder="检索全库 · 字母可按拼音 · > 命令"
           onChange={e => setQ(e.target.value)}
           role="combobox"
           aria-autocomplete="list"
@@ -405,10 +412,23 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
               })}
             </>
           )}
-          {q.trim() && groups === null && <p className="ck-empty" aria-busy="true" aria-live="polite">翻检纸页…</p>}
-          {q.trim() && flat.length === 0 && groups && <p className="ck-empty" aria-live="polite">无所检出。</p>}
+          {qn && !cmdMode && (
+            <div className="ck-chips" role="tablist" aria-label="结果类型">
+              {([['all', '全部'], ['doc', '文'], ['person', '人'], ['timeline', '年'], ['imagery', '意象'], ['volume', '卷'], ['questionnaire', '问卷']] as const).map(([id, lab]) => (
+                <button key={id} type="button" role="tab" aria-selected={chip === id}
+                  className={`ck-chip ${chip === id ? 'on' : ''}`} onClick={() => setChip(id)}>{lab}</button>
+              ))}
+            </div>
+          )}
+          {status === 'loading' && <p className="ck-empty" aria-busy="true" aria-live="polite">翻检纸页…</p>}
+          {status === 'fail' && (
+            <p className="ck-empty" role="alert">网络失败，不是无所检出。
+              <button type="button" className="ck-clear" onClick={() => setRetryTick(n => n + 1)}>重试</button>
+            </p>
+          )}
+          {status === 'ok' && flat.length === (cmdHits.length) && <p className="ck-empty" aria-live="polite">无所检出。</p>}
           {q.trim() && groups?.doc?.length ? <Group name="文档" greek="ΓΡΑΦΗ" /> : null}
-          {q.trim() && groups?.doc?.slice(0, 6).map(d => {
+          {q.trim() && groups?.doc?.slice(0, take(6)).map(d => {
             idx += 1;
             const sn = (d.sn || '').replace(/\s+/g, ' ').trim();
             if (d.locked) {
@@ -421,7 +441,7 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
               );
             }
             return (
-              <CkHit key={d.path} href={routeToPath({ v: 'doc', path: d.path, q: q.trim() || undefined })} ix={idx} on={cursor === idx}
+              <CkHit key={d.path} href={routeToPath({ v: 'doc', path: d.path })} ix={idx} on={cursor === idx}
                 onHover={() => { setCursor(idx); prefetchDoc(d.path); }} onPick={() => run({ t: 'doc', path: d.path, label: d.title, sn: d.sn || '' })}>
                 <b>{d.title}</b><span>{d.domain} · {d.stage}</span>
                 {sn ? <span className="ck-sn">{sn.slice(0, 88)}{sn.length > 88 ? '…' : ''}</span> : null}
@@ -429,7 +449,7 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
             );
           })}
           {q.trim() && groups?.person?.length ? <Group name="人物" greek="ΠΡΟΣΩΠΑ" /> : null}
-          {q.trim() && groups?.person?.slice(0, 4).map(p => {
+          {q.trim() && groups?.person?.slice(0, take(4)).map(p => {
             idx += 1;
             if (p.locked) {
               return (

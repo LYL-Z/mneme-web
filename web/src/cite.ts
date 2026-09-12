@@ -6,8 +6,8 @@ function permalinkParts(opts?: { title?: string; heading?: string; snippet?: str
   const heading = opts?.heading || ar?.dataset.activeH || '';
   const snippetIn = opts?.snippet ?? selectionSnippet();
   const url = new URL(location.href);
-  if (heading && !url.searchParams.get('h') && !url.searchParams.get('ev')) {
-    url.searchParams.set('h', heading);
+  if (opts?.heading && !url.searchParams.get('h') && !url.searchParams.get('ev')) {
+    url.searchParams.set('h', opts.heading);
   }
   const link = url.toString();
   const snippet = snippetIn.replace(/\s+/g, ' ').trim().slice(0, 200);
@@ -27,12 +27,11 @@ export function copyPermalink(opts?: { title?: string; heading?: string; snippet
   else fail();
 }
 
-/** 手机走系统分享；桌面或取消分享则回复制。 */
+/** 凡系统能分享的壳都走分享；取消或不能则回复制。?h= 只在调用方显式给了标题锚点时附加。 */
 export function shareOrCopyPermalink(opts?: { title?: string; heading?: string; snippet?: string }): void {
-  const { title, snippet, link, text } = permalinkParts(opts);
-  const phone = typeof document !== 'undefined' && document.documentElement.dataset.shell === 'phone';
+  const { title, snippet, link } = permalinkParts(opts);
   const nav = typeof navigator !== 'undefined' ? navigator : undefined;
-  if (phone && nav?.share) {
+  if (nav?.share) {
     const payload: ShareData = { title: title ? `${title} · ΜΝΗΜΗ` : 'ΜΝΗΜΗ', url: link };
     if (snippet) payload.text = `「${snippet}」`;
     const can = typeof nav.canShare !== 'function' || nav.canShare(payload);

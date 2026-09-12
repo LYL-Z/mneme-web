@@ -84,3 +84,10 @@ web/r4-audit.mjs
 web/r4-verify.mjs
 web/r5-audit.mjs
 web/s7-*.mjs
+
+# v9 波次验收脚本（本机）
+web/v9-verify.mjs
+web/v9-verify2.mjs
+web/v9-browser.mjs
+web/wave4-patch.mjs
+web/wave4-b.mjs

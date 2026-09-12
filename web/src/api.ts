@@ -154,7 +154,11 @@ let reloading = false;
 function handle401(url: string): never {
   if (!reloading) {
     reloading = true;
-    setTimeout(() => location.reload(), 60);
+    try {
+      const here = `${location.pathname}${location.search}`;
+      if (here && here !== '/') sessionStorage.setItem('mneme-return', here);
+    } catch { /* */ }
+    setTimeout(() => { location.href = '/'; }, 60);
   }
   throw new ApiError(401, `unauthorized ${url}`);
 }
@@ -289,8 +293,12 @@ export const api = {
   yearDensity: () => j<{ year: number; docs: number }[]>('/api/year-density'),
   entity: (id: number) => swr404<EntityDetail>(`/api/entities/${id}`),
   doc: (path: string) => swr404<DocFull>(`/api/doc/${encodeURI(path)}`),
-  search: (q: string) => j<{ groups: SearchGroups; terms: string[] }>(
-    `/api/search?q=${encodeURIComponent(q)}`),
+  search: (q: string, group?: string, offset = 0) => {
+    const lim = group ? 40 : 12;
+    const g = group ? `&group=${encodeURIComponent(group)}` : '';
+    return j<{ groups: SearchGroups; terms: string[] }>(
+      `/api/search?q=${encodeURIComponent(q)}${g}&offset=${offset}&limit=${lim}`);
+  },
   volumes: () => swr<Volume[]>('/api/volumes'),
   volume: (code: string) => swr404<VolumeDetail>(`/api/volumes/${code}`),
   chapter: (code: string, seq: number) => swr404<ChapterDetail>(`/api/chapter/${code}/${seq}`),

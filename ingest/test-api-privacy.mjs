@@ -114,10 +114,28 @@ let child = null;
 
 async function waitHealth(url, timeoutMs = 20000) {
   const t0 = Date.now();
+  let cookie = '';
   while (Date.now() - t0 < timeoutMs) {
     try {
       const r = await fetch(`${url}/api/health`);
-      if (r.ok) return await r.json();
+      if (r.ok) {
+        /* 波4：health 对未登录只回 {ok:true}——先过口令门再取部署态（strict/build/mode） */
+        if (!cookie) {
+          try {
+            const lr = await fetch(`${url}/api/login`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ token: process.env.MNEME_TOKEN || 'mneme' }),
+            });
+            cookie = lr.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
+          } catch { /* 门还没起来 */ }
+        }
+        if (cookie) {
+          const r2 = await fetch(`${url}/api/health`, { headers: { cookie } });
+          if (r2.ok) return await r2.json();
+        }
+        return await r.json();
+      }
     } catch { /* 还没起来 */ }
     await new Promise(r => setTimeout(r, 300));
   }
