@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { getHighlights, getRecentDocs, weekOpenStats, timeAgo } from '../history';
 import { vitalStats } from '../vitals';
+import { api, type AdminStatus } from '../api';
+import { notify } from '../toast';
 import { routeToPath } from '../route';
 import { bgmGet, bgmSet, bgmSub } from '../bgm';
 import { useFocusTrap } from '../focusTrap';
@@ -95,6 +97,7 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
   const microBgm = useRef(false);
   const [foot, setFoot] = useState(() => weekFootprint());
   const [vitals, setVitals] = useState(() => vitalStats());
+  const [sync, setSync] = useState<AdminStatus['sync']>(undefined);
   const [bgm, setBgm] = useState(bgmGet);
   const [dev, setDev] = useState<DeviceInfo | null>(() => (typeof window === 'undefined' ? null : readDevice()));
   const prefRef = useRef<HTMLDivElement>(null);
@@ -123,6 +126,9 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
     const t = window.setInterval(tick, 15_000);
     return () => clearInterval(t);
   }, []);
+  useEffect(() => {
+    api.adminStatus().then(s => setSync(s.sync)).catch(() => {});
+  }, [panel]);
   useReadingTimer(() => {
     bgmWas.current = bgmGet().on;
     if (bgmWas.current) bgmSet({ on: false });
@@ -280,6 +286,28 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
                   {dev.standalone ? ' · 主屏' : ''}
                 </p>
               )}
+              <p className="pref-footline dim">
+                现场数字只留在这台浏览器，不会汇到我这边，也不会传到别的设备。鸿蒙和电脑要各开一次。
+              </p>
+              {sync && (
+                <p className="pref-footline">
+                  本机知识库{sync.watching ? '正在听改动' : '未监听'}
+                  {sync.pending ? ' · 索引中' : ''}
+                  {sync.last?.t ? ` · 上次 ${timeAgo(new Date(sync.last.t).getTime())}` : ''}
+                  {sync.last && sync.last.code !== 0 && sync.last.code != null ? ' · 上次未完成' : ''}
+                </p>
+              )}
+              <button type="button" className="pref-sys" onClick={() => {
+                const payload = {
+                  at: new Date().toISOString(),
+                  device: dev,
+                  vitals: vitalStats(),
+                };
+                const text = JSON.stringify(payload, null, 2);
+                const ok = () => notify('已复制这台设备的现场，不会上传', 'info');
+                if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(ok).catch(() => notify('复制失败', 'warn'));
+                else notify('复制失败', 'warn');
+              }}>复制本机现场</button>
               <p className="pref-footline dim">顶栏 <kbd>?</kbd> 查看快捷键 · <kbd>g</kbd>+字母 跳空间 · <kbd>j</kbd>/<kbd>k</kbd> 滚动 · 划线只在本机</p>
             </div>
           </div>

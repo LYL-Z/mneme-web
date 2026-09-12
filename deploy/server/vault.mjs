@@ -1,6 +1,6 @@
 /**
- * ΜΝΗΜΗ · 知识库写回（本机 vault）
- * 永远不写 私人资料/ 与 隐私/。路径不得越出 MNEME_VAULT。
+ * ΜΝΗΜΗ · 知识库只读入口（本机 vault）
+ * 网站只读、只记录，不写回任何路径。ingest 监听仍是知识库 → 网站单向。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -58,16 +58,8 @@ export const readSource = (rel) => {
   };
 };
 
-export const writeSource = (rel, text) => {
-  if (typeof text !== 'string') throw new Error('not text');
-  if (Buffer.byteLength(text, 'utf8') > MAX_BYTES) throw new Error('too large');
-  const abs = absSafe(rel);
-  if (!abs || !abs.toLowerCase().endsWith('.md')) throw new Error('bad path');
-  fs.mkdirSync(path.dirname(abs), { recursive: true });
-  const tmp = `${abs}.mneme-tmp`;
-  fs.writeFileSync(tmp, text, 'utf8');
-  fs.renameSync(tmp, abs);
-  return readSource(rel);
+export const writeSource = () => {
+  throw new Error('site does not write vault');
 };
 
 export const bodyFromRaw = (raw) => {

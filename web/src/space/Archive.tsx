@@ -8,7 +8,6 @@ import { ensureCjkSerif } from '../fontsCjk';
 import { prefetchDoc } from '../prefetch';
 import { notify } from '../toast';
 import { askUnlock } from '../unlock';
-import { DeskWrite } from './DeskWrite';
 import { bindSyncScroll } from '../syncScroll';
 import { emitLayout, readScroller } from '../readHost';
 import { useFocusTrap } from '../focusTrap';
@@ -21,7 +20,7 @@ import { HighlightList, HighlightPop } from './archive/HighlightMarks';
 
 /**
  * Σ7 原文档案馆 · 阅读工作区
- * 外壳：目录 / 对照 / 写作台。查找、划线、渲染、对照各自成模块。
+ * 外壳：目录 / 对照。查找、划线、渲染、对照各自成模块。网站只记录，不写回知识库。
  */
 const VOL_DESIGN: Record<string, string> = {
   P0: '百万长文写作/章稿/00-读法.md',
@@ -88,8 +87,6 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
   const [shot, setShot] = useState<{ src: string; alt: string; list: { src: string; alt: string }[] } | null>(null);
   const shotRef = useRef<HTMLDivElement>(null);
   const [hlTick, setHlTick] = useState(0);
-  const [editOpen, setEditOpen] = useState(false);
-  const [wantAi, setWantAi] = useState(false);
   const [docTick, setDocTick] = useState(0);
   const mainPane = useRef<HTMLDivElement>(null);
   const secPane = useRef<HTMLDivElement>(null);
@@ -126,7 +123,7 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
     upd();
     host.addEventListener('scroll', upd, { passive: true });
     return () => host.removeEventListener('scroll', upd);
-  }, [meta?.body, path, dual, editOpen]);
+  }, [meta?.body, path, dual]);
   useEffect(() => {
     const on = (e: Event) => {
       const d = (e as CustomEvent<{ src?: string; alt?: string; list?: { src: string; alt: string }[] }>).detail;
@@ -146,7 +143,7 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
     });
   };
   useFocusTrap(shotRef, !!shot, () => setShot(null));
-  useEffect(() => { emitLayout(); }, [dual, editOpen, path]);
+  useEffect(() => { emitLayout(); }, [dual, path]);
   useEffect(() => {
     const headingNear = (node: Node | null) => {
       let el = node instanceof Element ? node : node?.parentElement ?? null;
@@ -182,19 +179,9 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
     return () => window.removeEventListener('mneme:find', on);
   }, []);
   useEffect(() => {
-    const edit = () => { setEditOpen(true); setWantAi(false); };
-    const ai = () => { setEditOpen(true); setWantAi(true); };
-    window.addEventListener('mneme:edit', edit);
-    window.addEventListener('mneme:ai', ai);
-    return () => {
-      window.removeEventListener('mneme:edit', edit);
-      window.removeEventListener('mneme:ai', ai);
-    };
-  }, []);
-  useEffect(() => {
     if (!dual || !reader.sync || !mainPane.current || !secPane.current) return;
     return bindSyncScroll(mainPane.current, secPane.current);
-  }, [dual, reader.sync, secPath, path, editOpen]);
+  }, [dual, reader.sync, secPath, path]);
   useEffect(() => {
     const root = document.querySelector('.ar-pane:not(.sec) .ar-body') as HTMLElement | null;
     if (!root || !findOpen) return;
@@ -232,8 +219,6 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
         stepShot(e.key === 'ArrowRight' ? 1 : -1);
         return;
       }
-      if (editOpen) return;
-      if (e.key === 'e') { e.preventDefault(); setEditOpen(true); setWantAi(false); return; }
       if (e.key === 'Escape') {
         if (shot) { setShot(null); e.preventDefault(); return; }
         if (pop) { setPop(null); e.preventDefault(); return; }
@@ -264,7 +249,7 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
-  }, [findOpen, inspOpen, tocOpen, volDesign, shot, pop, editOpen]);
+  }, [findOpen, inspOpen, tocOpen, volDesign, shot, pop]);
   useEffect(() => {
     const docs = getRecentDocs().filter(d => isPublicPath(d.path));
     const i = docs.findIndex(d => d.path === path);
@@ -313,7 +298,7 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
     spy();
     host.addEventListener('scroll', onScroll, { passive: true });
     return () => { host.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); };
-  }, [headings, dual, editOpen]);
+  }, [headings, dual]);
 
   /* 点击外部关闭设置面板 */
   useEffect(() => {
@@ -336,7 +321,7 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
   } as React.CSSProperties;
 
   return (
-    <div className={`ar${dual || editOpen ? ' is-split' : ''}`} style={wrapStyle} data-active-h={activeH} data-doc-title={meta?.title || ''}>
+    <div className={`ar${dual ? ' is-split' : ''}`} style={wrapStyle} data-active-h={activeH} data-doc-title={meta?.title || ''}>
       <header className="ar-head">
         <div className="ar-head-main">
           <p className="ar-crumb">
@@ -356,7 +341,6 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
         <div className="ar-toolbar" ref={rsRef}>
           <button className={`ar-tool ${tocOpen ? 'on' : ''}`} onClick={() => setTocOpen(v => !v)} title="目录 · t">目录</button>
           <button className={`ar-tool ${dual ? 'on' : ''}`} onClick={() => { setDual(v => !v); if (!dual) setSecPath(p => p ?? volDesign?.path ?? null); }} title="双栏对照阅读 · d">对照</button>
-          <button className={`ar-tool ${editOpen ? 'on' : ''}`} onClick={() => { setEditOpen(v => !v); setWantAi(false); }} title="编辑本篇 · e">编辑</button>
           <button className={`ar-tool ${inspOpen ? 'on' : ''}`} onClick={() => setInspOpen(v => !v)} title="来源检查器 · i">检查器</button>
           <FindBar
             open={findOpen}
@@ -396,14 +380,6 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
 
         <div className={`ar-panes ${dual ? 'dual' : ''}`}>
           <div className="ar-pane" ref={mainPane}>
-            {editOpen ? (
-              <DeskWrite
-                path={path}
-                wantAi={wantAi}
-                onClose={() => { setEditOpen(false); setWantAi(false); }}
-                onSaved={() => { setDocTick(n => n + 1); }}
-              />
-            ) : (
             <DocPane
               key={`${path}-${docTick}`}
               path={path} anchor={anchor} evidenceId={evidenceId} query={query} track
@@ -414,7 +390,6 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
               }}
               onEvidenceFocus={setEvFocus} onEvidenceLoci={setEvLoci}
             />
-            )}
           </div>
           {dual && (
             <div className="ar-pane sec" ref={secPane}>

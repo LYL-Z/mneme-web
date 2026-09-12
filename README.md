@@ -1,6 +1,6 @@
 # ΜΝΗΜΗ
 
-刘佑林的数字传记装置。纸色 / 墨夜双主题：时间之河、人物星图、原文档案馆、书房（《补写的手册》六部）。本机可开写作台，把公开层正文写回 Obsidian vault。
+刘佑林的数字传记装置。纸色 / 墨夜双主题：时间之河、人物星图、原文档案馆、书房（《补写的手册》六部）。网站只记录（划线、足迹、丝带、本机现场），不写回知识库。知识库改动经 ingest 单向进入网站。
 
 线上实例（口令进入）：https://mneme-biography.app.workbuddy.link/
 
@@ -16,7 +16,7 @@ cp server/privacy.local.json.example server/privacy.local.json
 # 填入 secretName / secretPassword / secretDoc
 
 # 2. 从前端
-cd web && npm ci && npm run build && npm run sync:dist && cd ..
+cd web && npm ci && npm run release && cd ..
 
 # 3. 扫描 Obsidian vault 生成只读库（路径按你的库调整）
 # MNEME_VAULT="D:/The Memory/The Memory" node --experimental-sqlite ingest/ingest.mjs
@@ -39,11 +39,8 @@ MNEME_TOKEN=dev-token node --experimental-sqlite server/server.mjs
 | `MNEME_MODE=cloud` | 云模式（cookie `secure`） |
 | `MNEME_STRICT=1` | 口令仍为内置开发值则拒绝启动；`MNEME_MODE=cloud` 时默认开启 |
 | `MNEME_DB` | SQLite 路径，默认 `ingest/mneme.db` |
-| `MNEME_VAULT` | 本机 Obsidian 库根路径（写回与监听用） |
+| `MNEME_VAULT` | 本机 Obsidian 库根路径（只读扫描与监听，网站不写回） |
 | `MNEME_WATCH=0` | 关闭 vault 文件监听 |
-| `MNEME_AI_KEY` | 可选。兼容 OpenAI 的起草密钥，只在服务端使用 |
-| `MNEME_AI_BASE` | 可选。Chat Completions 根地址 |
-| `MNEME_AI_MODEL` | 可选。起草模型名 |
 
 生产环境把口令与 `MNEME_SECRET_NAME` 只放在托管平台环境变量里。云模式默认打开 STRICT；若要临时回滚，设 `MNEME_STRICT=0`。
 

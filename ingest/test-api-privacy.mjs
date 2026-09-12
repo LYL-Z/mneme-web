@@ -327,12 +327,12 @@ async function main() {
       method: 'PUT', headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ text: 'should-not-write' }),
     });
-    ok('PUT /api/source 无管理口令 → 403', put.status === 403, `得到 ${put.status}`);
+    ok('PUT /api/source 拒绝写回知识库 → 501', put.status === 501, `得到 ${put.status}`);
     const ai = await fetch(`${BASE}/api/ai/draft`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ path: '私人资料/x.md', text: 'hi', mode: 'continue' }),
     });
-    ok('POST /api/ai/draft 无管理口令 → 403', ai.status === 403, `得到 ${ai.status}`);
+    ok('POST /api/ai/draft 拒绝代写写回 → 501', ai.status === 501, `得到 ${ai.status}`);
     const st = await api('/api/admin/status');
     ok('GET /api/admin/status 默认未授权', st.status === 200 && st.body?.admin === false);
     const pubGet = await api(pub);

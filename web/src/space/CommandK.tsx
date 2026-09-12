@@ -42,8 +42,6 @@ const CMDS: { id: string; label: string; hint: string }[] = [
   { id: 'museum', label: '去意象博物馆', hint: 'g m' },
   { id: 'lighthouse', label: '去证据灯塔', hint: 'g l' },
   { id: 'copy', label: '复制本页深链', hint: 'c' },
-  { id: 'edit', label: '编辑本篇', hint: 'e' },
-  { id: 'ai', label: '打开代写', hint: '' },
   { id: 'prefs', label: '打开偏好', hint: '' },
   { id: 'theme', label: '切换纸色 / 墨夜', hint: '' },
   { id: 'unlock', label: '打开绝密档案', hint: '' },
@@ -252,8 +250,6 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
     if (a.t === 'cmd') {
       close();
       if (a.id === 'copy') copyPermalink();
-      else if (a.id === 'edit') window.dispatchEvent(new CustomEvent('mneme:edit'));
-      else if (a.id === 'ai') window.dispatchEvent(new CustomEvent('mneme:ai'));
       else if (a.id === 'prefs') window.dispatchEvent(new CustomEvent('mneme:prefs'));
       else if (a.id === 'theme') onToggleTheme?.();
       else if (a.id === 'unlock') askUnlock();

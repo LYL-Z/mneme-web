@@ -13,6 +13,7 @@ RUN cd server && npm install --omit=dev --no-audit --no-fund
 COPY server/ ./server/
 COPY web-dist/ ./web/dist
 COPY mneme.db ./ingest/mneme.db
+COPY BUILD ./BUILD
 
 EXPOSE 8421
 CMD ["node", "--experimental-sqlite", "server/server.mjs"]

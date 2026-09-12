@@ -30,8 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 /* 隐私门禁规则的唯一事实来源（server / store / store-pg 共用，禁止各写一套） */
 import { SECRET_NAME, LOCAL_PRIVACY, isPrivatePath, isSecretText, isSecretPath, isQuestionnaireEntity, mustHideEntity } from './privacy.mjs';
-import { vaultReady, normRel, writeClass, readSource, writeSource, bodyFromRaw, titleFromRaw } from './vault.mjs';
-import { llmDraft, hasLlm } from './ai-draft.mjs';
+import { vaultReady, normRel, writeClass, readSource, titleFromRaw } from './vault.mjs';
 import { startVaultWatch, requestIngest, syncStatus } from './sync-watch.mjs';
 
 /* M7：MNEME_PG 存在时切 CloudBase PG 适配器（同接口），否则用本地 SQLite */
@@ -63,7 +62,17 @@ const ADMIN_TOKEN = process.env.MNEME_ADMIN_TOKEN || ADMIN_DEV;
 const CLOUD = process.env.MNEME_MODE === 'cloud';
 /* 云端默认 STRICT：口令必须来自环境且不得等于内置开发值。本机开发不受影响。回滚：MNEME_STRICT=0 */
 const STRICT = process.env.MNEME_STRICT === '1' || (CLOUD && process.env.MNEME_STRICT !== '0');
-const BUILD = process.env.MNEME_BUILD || 'dev';
+const readBuildStamp = () => {
+  for (const p of [path.join(HERE, '..', 'BUILD'), path.join(HERE, '..', 'deploy', 'BUILD')]) {
+    try {
+      const s = fs.readFileSync(p, 'utf8').trim();
+      if (s) return s;
+    } catch { /* 无戳则退回环境变量 */ }
+  }
+  return '';
+};
+const PACK = readBuildStamp();
+const BUILD = PACK || process.env.MNEME_BUILD || 'dev';
 const LOG_ON = process.env.MNEME_LOG !== '0';
 const KEY = crypto.createHash('sha256').update(`mneme:${TOKEN}`).digest('hex').slice(0, 32);
 
@@ -244,8 +253,9 @@ app.get('/api/logout', (c) => {
 });
 app.get('/api/health', (c) => c.json({
   ok: true, service: 'mneme', mode: CLOUD ? 'cloud' : 'local', pg: !!process.env.MNEME_PG, build: BUILD,
+  pack: PACK || null,
   strict: STRICT,
-  write: { vault: vaultReady() && !CLOUD, watch: syncStatus().watching, ai: hasLlm() },
+  write: { vault: false, watch: syncStatus().watching, ai: false },
 }));
 
 /* ---------- 只读 API ---------- */
@@ -380,41 +390,12 @@ app.get('/api/source/*', (c) => {
     text,
     mtime: file?.mtime || g.doc?.mtime || null,
     sha256: file?.sha256 || null,
-    writable: isAdmin(c) && vaultReady() && !CLOUD && writeClass(g.rel) !== 'private',
+    writable: false,
     title: g.doc?.title || titleFromRaw(text, g.rel),
   });
 });
 
-app.put('/api/source/*', async (c) => {
-  if (CLOUD) return c.json({ error: 'vault stays local' }, 501);
-  if (!isAdmin(c)) return c.json({ error: 'forbidden' }, 403);
-  if (!vaultReady()) return c.json({ error: 'vault missing' }, 503);
-  const g = sourceGate(c, c.req.path.replace(/^\/api\/source\//, ''));
-  if (g.err) return g.err;
-  if (writeClass(g.rel) === 'private') return notFound(c);
-  const body = await c.req.json().catch(() => ({}));
-  const text = typeof body.text === 'string' ? body.text : '';
-  const cur = readSource(g.rel);
-  if (body.mtime && cur?.mtime && body.mtime !== cur.mtime) {
-    return c.json({ error: 'conflict', mtime: cur.mtime }, 409);
-  }
-  if (!cur && !g.doc) return notFound(c);
-  let saved;
-  try { saved = writeSource(g.rel, text); }
-  catch { return c.json({ error: 'write failed' }, 500); }
-  if (!saved) return c.json({ error: 'write failed' }, 500);
-  if (typeof store.patchDocumentText === 'function') {
-    store.patchDocumentText(saved.path, {
-      raw: saved.text,
-      body: bodyFromRaw(saved.text),
-      sha256: saved.sha256,
-      mtime: saved.mtime,
-      title: titleFromRaw(saved.text, g.doc?.title || ''),
-    });
-  }
-  requestIngest('save');
-  return c.json({ ok: true, ...saved, title: titleFromRaw(saved.text, g.doc?.title || '') });
-});
+app.put('/api/source/*', (c) => c.json({ error: 'site does not write vault' }, 501));
 
 app.post('/api/admin/session', async (c) => {
   const ip = clientIp(c);
@@ -427,29 +408,12 @@ app.post('/api/admin/session', async (c) => {
 });
 app.get('/api/admin/status', (c) => c.json({
   admin: isAdmin(c),
-  vault: vaultReady() && !CLOUD,
-  ai: hasLlm(),
+  vault: false,
+  ai: false,
   sync: syncStatus(),
 }));
 
-app.post('/api/ai/draft', async (c) => {
-  if (!isAdmin(c)) return c.json({ error: 'forbidden' }, 403);
-  const body = await c.req.json().catch(() => ({}));
-  const rel = normRel(body.path || '');
-  if (!rel) return c.json({ error: 'bad path' }, 400);
-  const g = sourceGate(c, rel);
-  if (g.err) return g.err;
-  const file = vaultReady() ? readSource(rel) : null;
-  const text = typeof body.text === 'string' ? body.text : (file?.text || g.doc?.body || '');
-  const selection = typeof body.selection === 'string' ? body.selection : '';
-  const instruction = typeof body.instruction === 'string' ? body.instruction : '';
-  const mode = ['continue', 'polish', 'expand'].includes(body.mode) ? body.mode : 'continue';
-  const out = await llmDraft({
-    text, selection, instruction, mode,
-    title: g.doc?.title || titleFromRaw(text, rel),
-  });
-  return c.json({ ...out, mode, local: out.engine === 'local' });
-});
+app.post('/api/ai/draft', (c) => c.json({ error: 'site does not write vault' }, 501));
 
 app.post('/api/admin/ingest', (c) => {
   if (!isAdmin(c)) return c.json({ error: 'forbidden' }, 403);

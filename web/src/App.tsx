@@ -422,29 +422,6 @@ export default function App() {
     const query = q?.trim().slice(0, 48) || undefined;
     go({ v: 'doc', path: p, h, ev, q: query });
   }, [go]);
-  useEffect(() => {
-    const lastPublic = () => getRecentDocs()[0];
-    const onEdit = () => {
-      if (routeRef.current.v === 'doc') return;
-      const last = lastPublic();
-      if (!last) { notify('先打开一篇公开原文', 'warn'); return; }
-      go({ v: 'doc', path: last.path });
-      window.setTimeout(() => window.dispatchEvent(new CustomEvent('mneme:edit')), 120);
-    };
-    const onAi = () => {
-      if (routeRef.current.v === 'doc') return;
-      const last = lastPublic();
-      if (!last) { notify('先打开一篇公开原文', 'warn'); return; }
-      go({ v: 'doc', path: last.path });
-      window.setTimeout(() => window.dispatchEvent(new CustomEvent('mneme:ai')), 120);
-    };
-    window.addEventListener('mneme:edit', onEdit);
-    window.addEventListener('mneme:ai', onAi);
-    return () => {
-      window.removeEventListener('mneme:edit', onEdit);
-      window.removeEventListener('mneme:ai', onAi);
-    };
-  }, [go]);
   const openPerson = useCallback((id: number) => go({ v: 'person', id }), [go]);
   const openImagery = useCallback((id: number) => go({ v: 'imagery', id }), [go]);
   const openVolume = useCallback((code: string) => go({ v: 'volume', code }), [go]);

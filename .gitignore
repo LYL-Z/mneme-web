@@ -63,6 +63,9 @@ web/.playwright-cli/
 web/gate.yaml
 web/vite.config.ts.timestamp-*.mjs
 
+# 已迁出 web/ 根目录的验收化石（可能含默认口令）
+web/scripts/legacy-accept/
+
 # 本机验收探针（含默认口令与生产地址）——禁止入库
 web/g5-verify.mjs
 web/g6-prod.mjs

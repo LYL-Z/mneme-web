@@ -298,24 +298,4 @@ export const api = {
       throw new ApiError(r.status, 'admin session failed');
     }),
   source: (path: string) => j404<SourceDoc>(`/api/source/${encodeURI(path)}`),
-  saveSource: (path: string, text: string, mtime?: string | number | null) =>
-    fetch(`/api/source/${encodeURI(path)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, mtime }),
-    }).then(async r => {
-      if (r.status === 401) return handle401(path);
-      if (!r.ok) throw new ApiError(r.status, `${r.status} save`);
-      return r.json() as Promise<{ ok: boolean; mtime: string; sha256: string; title?: string }>;
-    }),
-  aiDraft: (body: { path: string; text: string; selection?: string; mode?: string; instruction?: string }) =>
-    fetch('/api/ai/draft', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }).then(async r => {
-      if (r.status === 401) return handle401(body.path);
-      if (!r.ok) throw new ApiError(r.status, `${r.status} ai`);
-      return r.json() as Promise<{ text: string; engine: 'llm' | 'local'; mode: string }>;
-    }),
 };
