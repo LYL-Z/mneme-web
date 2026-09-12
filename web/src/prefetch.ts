@@ -3,7 +3,7 @@ import { getRecentDocs } from './history';
 
 /** Linear 风：悬停 / 空闲时预热懒加载块。失败忽略，不影响阅读。 */
 const loaders: Partial<Record<SpaceKey | 'chapter' | 'foreshadow', () => Promise<unknown>>> = {
-  archive: () => import('./space/Archive'),
+  archive: () => Promise.all([import('./space/Archive'), import('./space/archive/ArchiveShelf')]),
   river: () => import('./space/River'),
   graph: () => import('./space/Graph'),
   study: () => import('./space/Study'),

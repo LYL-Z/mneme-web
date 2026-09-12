@@ -158,6 +158,9 @@ html[data-shell="phone"] .ar-head :is(h1, h2) {
   font-size: var(--fs-h3); white-space: normal;
 }
 html[data-shell="phone"] .ar-toolbar { flex-wrap: wrap; width: 100%; }
+html[data-shell="phone"] .ar-panes.dual { grid-template-columns: minmax(0, 1fr); }
+html[data-shell="phone"] .ar-find { width: 100%; }
+html[data-shell="phone"] .ar-find-q { width: min(42vw, 160px); }
 html[data-shell="phone"] .ar-body {
   padding: 22px 18px 40px;
   font-size: 17px;

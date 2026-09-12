@@ -244,6 +244,21 @@ export interface DomainDocs {
   topPersons: { id: number; display_name: string; relation_group: string; hits: number; locked?: boolean }[];
 }
 
+export interface ShelfDoc {
+  path: string; title: string; domain: string; stage: string | null; volume: string | null; mtime: number | string; locked?: boolean;
+}
+export interface Shelf {
+  domains: { domain: string; n: number }[];
+  stages: { stage: string; n: number }[];
+  volumes: { code: string; name: string; years: string; seq: number; color_token: string; docs: number }[];
+  recent: ShelfDoc[];
+}
+export interface CatalogNeighbors {
+  prev: { path: string; title: string } | null;
+  next: { path: string; title: string } | null;
+  source: 'study' | 'volume' | 'domain' | 'none';
+}
+
 export interface ImageryOne extends ImageryItem {
   occurrences: ImageryOcc[];
   /* v3.1 博物馆内容化 */
@@ -285,6 +300,9 @@ export const api = {
   domains: () => j<DomainStat[]>('/api/domains'),
   domainDocs: (name: string, limit = 80, offset = 0) =>
     j<DomainDocs>(`/api/domains/${encodeURIComponent(name)}/docs?limit=${limit}&offset=${offset}`),
+  shelf: () => swr<Shelf>('/api/shelf'),
+  catalog: (path: string) =>
+    j<CatalogNeighbors>(`/api/catalog?path=${encodeURIComponent(path)}`),
   queue: () => j<QueueItem[]>('/api/queue'),
   adminStatus: () => j<AdminStatus>('/api/admin/status'),
   adminSession: (token: string) =>

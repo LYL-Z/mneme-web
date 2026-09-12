@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { type DocFull } from '../api';
-import { getHighlights, getRecentDocs, isPublicPath, setDocNeighbors } from '../history';
+import { api, type CatalogNeighbors, type DocFull } from '../api';
+import { getHighlights, getRecentDocs, isPublicPath } from '../history';
 import { evidenceLabel } from '../evidenceKind';
 import { stageAnchorYear } from '../stages';
 import { focusEvidence, highlightQuery, cycleQueryMarks, queryMarkPos } from '../highlightSnippet';
@@ -36,6 +36,14 @@ const VOL_DESIGN: Record<string, string> = {
 const VOL_NAME: Record<string, string> = {
   P0: '序', B1: '空格', B2: '亲爱的', B3: '桌上', B4: '西侧', B5: '十七天', B6: '保存', AX: '附录',
 };
+
+function fmtMtime(m: number | string | undefined) {
+  if (m == null || m === '') return '';
+  const n = typeof m === 'number' ? m : Date.parse(String(m));
+  if (!Number.isFinite(n)) return String(m).slice(0, 10);
+  const ms = n < 1e12 ? n * 1000 : n;
+  return new Date(ms).toLocaleDateString('zh-CN');
+}
 
 
 export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPerson, onOpenVolume, onOpenDomain, onOpenStage, onOpenImagery, onOpenEvent }: {
@@ -73,6 +81,10 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
   const [findN, setFindN] = useState(0);
   const [findI, setFindI] = useState(0);
   const findRef = useRef<HTMLInputElement>(null);
+  const [cat, setCat] = useState<CatalogNeighbors>({ prev: null, next: null, source: 'none' });
+  const [shell, setShell] = useState(() =>
+    typeof document === 'undefined' ? 'desktop' : document.documentElement.dataset.shell || 'desktop');
+  const [dualTab, setDualTab] = useState<'main' | 'sec'>('main');
   const [dual, setDual] = useState(() => {
     try { return !!(JSON.parse(localStorage.getItem('mneme-ar-dual') || '{}') as { on?: boolean }).on; }
     catch { return false; }
@@ -98,6 +110,22 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
   const [evFocus, setEvFocus] = useState<number | undefined>(evidenceId);
   const [evLoci, setEvLoci] = useState<Record<number, { heading: string; para: string }>>({});
   useEffect(() => { ensureCjkSerif(); }, []);
+  useEffect(() => {
+    const on = () => setShell(document.documentElement.dataset.shell || 'desktop');
+    window.addEventListener('resize', on);
+    window.addEventListener('orientationchange', on);
+    return () => {
+      window.removeEventListener('resize', on);
+      window.removeEventListener('orientationchange', on);
+    };
+  }, []);
+  useEffect(() => {
+    let gone = false;
+    api.catalog(path).then(r => { if (!gone) setCat(r); }).catch(() => {
+      if (!gone) setCat({ prev: null, next: null, source: 'none' });
+    });
+    return () => { gone = true; };
+  }, [path]);
   useEffect(() => {
     const code = bookFromVolume(meta?.volume ?? null);
     if (code) document.documentElement.dataset.book = code;
@@ -167,8 +195,9 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
       }
       return '';
     };
-    const onUp = (e: MouseEvent) => {
-      if ((e.target as HTMLElement | null)?.closest?.('.ar-pop')) return;
+    const showSel = (e?: Event) => {
+      const t = e?.target as HTMLElement | null;
+      if (t?.closest?.('.ar-pop')) return;
       const sel = window.getSelection();
       const text = sel?.toString().replace(/\s+/g, ' ').trim() ?? '';
       const root = document.querySelector('.ar-pane:not(.sec) .ar-body');
@@ -179,8 +208,20 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
       const r = sel.getRangeAt(0).getBoundingClientRect();
       setPop({ x: r.left + r.width / 2, y: Math.max(12, r.top - 10), text, heading: headingNear(sel.anchorNode) });
     };
-    document.addEventListener('mouseup', onUp);
-    return () => document.removeEventListener('mouseup', onUp);
+    let wait = 0;
+    const onSel = () => {
+      window.clearTimeout(wait);
+      wait = window.setTimeout(() => showSel(), 80);
+    };
+    document.addEventListener('mouseup', showSel);
+    document.addEventListener('touchend', showSel, { passive: true });
+    document.addEventListener('selectionchange', onSel);
+    return () => {
+      document.removeEventListener('mouseup', showSel);
+      document.removeEventListener('touchend', showSel);
+      document.removeEventListener('selectionchange', onSel);
+      window.clearTimeout(wait);
+    };
   }, [path]);
   useEffect(() => {
     const on = () => {
@@ -341,7 +382,9 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
               <>
                 <button type="button" className="ar-crumb-a" onClick={() => onOpenDomain?.(meta.domain)}>{meta.domain}</button>
                 {meta.stage ? <> · <button type="button" className="ar-crumb-a" onClick={() => onOpenStage?.(meta.stage)}>{meta.stage}</button></> : null}
+                {meta.volume ? <> · <button type="button" className="ar-crumb-a" onClick={() => onOpenVolume?.(meta.volume as string)}>{VOL_NAME[meta.volume] || meta.volume}</button></> : null}
                 <span className="ar-read-cost"> · {remain || remainLabel(meta.body, 0)}</span>
+                {meta.mtime ? <span className="ar-read-cost"> · {fmtMtime(meta.mtime)}</span> : null}
               </>
             ) : '\u00A0'}
           </p>
@@ -349,10 +392,26 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
             <p className="ar-print-vol">{VOL_NAME[meta.volume] || meta.volume} · {meta.volume}</p>
           ) : null}
           <h1>{meta ? meta.title : path.replace(/\.md$/, '').split('/').pop()}</h1>
+          {(cat.prev || cat.next) && (
+            <nav className="ar-catnav" aria-label="目录序邻篇">
+              <button type="button" className="ar-catnav-btn" disabled={!cat.prev} onClick={() => cat.prev && onNavigate(cat.prev.path)}>
+                上一篇{cat.prev ? ` · ${cat.prev.title}` : ''}
+              </button>
+              <button type="button" className="ar-catnav-btn" disabled={!cat.next} onClick={() => cat.next && onNavigate(cat.next.path)}>
+                下一篇{cat.next ? ` · ${cat.next.title}` : ''}
+              </button>
+            </nav>
+          )}
         </div>
         <div className="ar-toolbar" ref={rsRef}>
           <button className={`ar-tool ${tocOpen ? 'on' : ''}`} onClick={() => setTocOpen(v => !v)} title="目录 · t">目录</button>
-          <button className={`ar-tool ${dual ? 'on' : ''}`} onClick={() => { setDual(v => !v); if (!dual) setSecPath(p => p ?? volDesign?.path ?? null); }} title="双栏对照阅读 · d">对照</button>
+          <button className={`ar-tool ${dual ? 'on' : ''}`} onClick={() => { setDual(v => !v); if (!dual) { setSecPath(p => p ?? volDesign?.path ?? null); setDualTab('sec'); } }} title="双栏对照阅读 · d">对照</button>
+          {dual && shell === 'phone' && (
+            <span className="ar-dual-tabs" role="tablist" aria-label="对照页签">
+              <button type="button" role="tab" aria-selected={dualTab === 'main'} className={`ar-tool ${dualTab === 'main' ? 'on' : ''}`} onClick={() => setDualTab('main')}>主篇</button>
+              <button type="button" role="tab" aria-selected={dualTab === 'sec'} className={`ar-tool ${dualTab === 'sec' ? 'on' : ''}`} onClick={() => setDualTab('sec')}>对照</button>
+            </span>
+          )}
           <button className={`ar-tool ${inspOpen ? 'on' : ''}`} onClick={() => setInspOpen(v => !v)} title="来源检查器 · i">检查器</button>
           <FindBar
             open={findOpen}
@@ -390,21 +449,20 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
           </aside>
         )}
 
-        <div className={`ar-panes ${dual ? 'dual' : ''}`}>
-          <div className="ar-pane" ref={mainPane}>
+        <div className={`ar-panes ${dual ? 'dual' : ''}`} data-tab={dual ? dualTab : undefined}>
+          <div className="ar-pane" ref={mainPane} hidden={dual && shell === 'phone' && dualTab === 'sec'}>
             <DocPane
               key={`${path}-${docTick}`}
               path={path} anchor={anchor} evidenceId={evidenceId} query={query} track
               onNavigate={onNavigate} onOpenPerson={onOpenPerson}
               onHeadings={onHeadings} onDocMeta={d => {
                 setMeta(d);
-                setDocNeighbors((d.backlinks || []).filter(b => !b.locked).map(b => b.path));
               }}
               onEvidenceFocus={setEvFocus} onEvidenceLoci={setEvLoci}
             />
           </div>
           {dual && (
-            <div className="ar-pane sec" ref={secPane}>
+            <div className="ar-pane sec" ref={secPane} hidden={shell === 'phone' && dualTab === 'main'}>
               {secPath ? (
                 <>
                   <div className="ar-sec-bar surface">

@@ -783,6 +783,31 @@ html.page-hidden .glass::after {
 .gp-sheet-doc:hover { transform: translateY(-1px); }
 
 /* ============ Σ7 原文档案馆 · v4 阅读工作区（正文稳定实底，玻璃只留给浮层） ============ */
+.shelf { max-width: 760px; margin: 0 auto; padding: 18px 28px 96px; }
+.shelf-kicker { margin: 0 0 8px; font-size: var(--fs-xs); letter-spacing: 0.22em; color: var(--bronze); }
+.shelf-head h1 { margin: 0; font-size: var(--fs-display); font-weight: 600; }
+.shelf-sub { margin: 8px 0 0; font-size: var(--fs-r); color: var(--ink-soft); line-height: 1.8; }
+.shelf-fail { display: flex; align-items: center; gap: 12px; margin: 22px 0; color: var(--danger); }
+.shelf-sec { margin: 36px 0 0; }
+.shelf-sec h2 { margin: 0 0 12px; font-size: var(--fs-s); font-weight: 500; letter-spacing: 0.16em; color: var(--ink-faint); }
+.shelf-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.shelf-chip, .shelf-line {
+  border: 1px solid var(--glass-border); background: var(--surface-read);
+  color: var(--ink); font: inherit; cursor: pointer; text-align: left;
+}
+.shelf-chip {
+  display: inline-flex; align-items: baseline; gap: 8px;
+  padding: 8px 14px; border-radius: 999px; font-size: var(--fs-s);
+}
+.shelf-chip em { font-style: normal; font-size: var(--fs-xs); color: var(--ink-faint); }
+.shelf-list { list-style: none; margin: 0; padding: 0; }
+.shelf-line {
+  display: flex; flex-direction: column; gap: 4px; width: 100%;
+  padding: 12px 0; border: none; border-bottom: 1px dashed var(--glass-border);
+  border-radius: 0; background: transparent;
+}
+.shelf-line b { font-weight: 500; font-size: var(--fs-r); }
+.shelf-line span { font-size: var(--fs-xs); color: var(--ink-faint); }
 .ar { max-width: 1560px; margin: 0 auto; padding: 10px 28px 80px; }
 /* v4 · 阅读工作区头部：左侧标题 + 右侧工具条（目录/对照/检查器/设置） */
 .ar-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 6px 4px 14px; }
@@ -875,7 +900,21 @@ html.page-hidden .glass::after {
   width: min(160px, 36vw); border: none; background: transparent;
   color: var(--ink); font: inherit; font-size: var(--fs-s); outline: none;
 }
-.ar-find em { font-style: normal; font-size: var(--fs-xs); color: var(--ink-faint); min-width: 1.2em; }
+.ar-find em { font-style: normal; font-size: var(--fs-xs); color: var(--ink-faint); min-width: 3.6em; text-align: center; }
+.ar-find-btn {
+  min-width: 32px; min-height: 28px; padding: 0 8px;
+  border: none; border-radius: 6px; background: transparent;
+  color: var(--ink); font: inherit; font-size: var(--fs-s); cursor: pointer;
+}
+.ar-find-btn:disabled { opacity: 0.35; cursor: default; }
+.ar-catnav { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
+.ar-catnav-btn {
+  max-width: min(100%, 28em); padding: 4px 0; border: none; background: none;
+  color: var(--aegean); font: inherit; font-size: var(--fs-s); cursor: pointer;
+  text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ar-catnav-btn:disabled { color: var(--ink-faint); cursor: default; }
+.ar-dual-tabs { display: inline-flex; gap: 4px; }
 
 .ar-body {
   padding: 44px 50px 60px; border-radius: var(--r-lg);
@@ -930,7 +969,10 @@ html.page-hidden .glass::after {
 .ar-body img { max-width: 100%; height: auto; }
 .ar-body img.ar-img-open {
   display: block; margin: 1.2em auto;
-  aspect-ratio: 3 / 2;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  min-height: 8rem;
   object-fit: contain;
   background: color-mix(in srgb, var(--paper-deep) 88%, var(--ink));
   cursor: zoom-in;

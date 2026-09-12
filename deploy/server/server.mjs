@@ -273,6 +273,15 @@ app.get('/api/domains/:name/docs', (c) => {
     Math.min(+c.req.query('limit') || 60, 500), +c.req.query('offset') || 0,
     { unlocked: isUnlocked(c) }));
 });
+app.get('/api/shelf', async (c) => {
+  cache(c);
+  return c.json(await store.shelf({ unlocked: isUnlocked(c) }));
+});
+app.get('/api/catalog', async (c) => {
+  const p = c.req.query('path') || '';
+  if (!p) return c.json({ prev: null, next: null, source: 'none' });
+  return c.json(await store.catalogNeighbors(p, { unlocked: isUnlocked(c) }));
+});
 app.get('/api/queue', async (c) => {
   cache(c);
   return c.json(await store.evidenceQueue({ unlocked: isUnlocked(c) }));

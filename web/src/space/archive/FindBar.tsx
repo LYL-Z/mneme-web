@@ -31,7 +31,9 @@ export function FindBar({
               if (e.key === 'Escape') { onClose(); }
             }}
           />
-          <em>{n ? `${i}/${n}` : 0}</em>
+          <button type="button" className="ar-find-btn" aria-label="上一条" disabled={!n} onClick={() => onJump(-1)}>上</button>
+          <em aria-live="polite">{n ? `第 ${i} / ${n}` : '无'}</em>
+          <button type="button" className="ar-find-btn" aria-label="下一条" disabled={!n} onClick={() => onJump(1)}>下</button>
         </span>
       )}
     </>

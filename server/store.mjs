@@ -100,6 +100,40 @@ export const domainDocs = (name, limit = 60, offset = 0, { unlocked = false } = 
   };
 });
 
+/* ---------- 档案馆书架（域 / 学段 / 部卷 / 最近公开篇） ---------- */
+export const shelf = ({ unlocked = false } = {}) => withDb(db => {
+  const guard = unlocked ? '' : docGuardSql();
+  const domains = db.prepare(`SELECT domain, COUNT(*) n FROM documents WHERE domain IS NOT NULL AND domain!=''${guard} GROUP BY domain ORDER BY n DESC`).all();
+  const stages = db.prepare(`SELECT stage, COUNT(*) n FROM documents WHERE stage IS NOT NULL AND stage!=''${guard} GROUP BY stage ORDER BY n DESC`).all();
+  const volumes = db.prepare(`SELECT v.code, v.name, v.years, v.seq, v.color_token,
+    (SELECT COUNT(*) FROM documents d WHERE d.volume=v.code${unlocked ? '' : docGuardSql('d')}) docs
+    FROM volumes v ORDER BY v.seq`).all();
+  const recent = db.prepare(`SELECT path, title, domain, stage, volume, mtime FROM documents WHERE 1=1${guard} ORDER BY mtime DESC LIMIT 16`).all()
+    .map(d => ({ ...d, locked: !unlocked && isLockedStub(d) }));
+  return { domains, stages, volumes, recent };
+});
+
+/** 目录序邻篇：书房章序优先，否则同部，再否则同域。 */
+export const catalogNeighbors = (path, { unlocked = false } = {}) => withDb(db => {
+  const guard = unlocked ? '' : docGuardSql();
+  const doc = db.prepare(`SELECT path, title, domain, volume FROM documents WHERE path=?${guard}`).get(path);
+  if (!doc) return { prev: null, next: null, source: 'none' };
+  const chap = db.prepare('SELECT volume_code, seq FROM chapters WHERE doc_path=?').get(path);
+  if (chap) {
+    const prev = db.prepare('SELECT doc_path path, title FROM chapters WHERE volume_code=? AND seq<? AND doc_path IS NOT NULL AND doc_path!=\'\' ORDER BY seq DESC LIMIT 1').get(chap.volume_code, chap.seq);
+    const next = db.prepare('SELECT doc_path path, title FROM chapters WHERE volume_code=? AND seq>? AND doc_path IS NOT NULL AND doc_path!=\'\' ORDER BY seq ASC LIMIT 1').get(chap.volume_code, chap.seq);
+    if (prev || next) return { prev: prev || null, next: next || null, source: 'study' };
+  }
+  if (doc.volume) {
+    const rows = db.prepare(`SELECT path, title FROM documents WHERE volume=?${guard} ORDER BY is_index, path`).all(doc.volume);
+    const i = rows.findIndex(r => r.path === path);
+    if (i >= 0) return { prev: rows[i - 1] || null, next: rows[i + 1] || null, source: 'volume' };
+  }
+  const rows = db.prepare(`SELECT path, title FROM documents WHERE domain=?${guard} ORDER BY path`).all(doc.domain);
+  const i = rows.findIndex(r => r.path === path);
+  return { prev: i > 0 ? rows[i - 1] : null, next: i >= 0 ? rows[i + 1] || null : null, source: 'domain' };
+});
+
 /* ---------- 时间线 ---------- */
 export const timeline = ({ from = 2000, to = 2030, stage, kind, unlocked = false } = {}) => withDb(db => {
   /* 修复：JOIN documents 后 stage/volume/year 在 t 与 d 间歧义（documents 同样有 stage/volume 列），

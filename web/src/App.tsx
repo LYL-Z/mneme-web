@@ -18,7 +18,7 @@ import { readPrefs } from './space/Wellness';
 import { useFocusTrap } from './focusTrap';
 import { stageAnchorYear } from './stages';
 import { parseLocation, routeId, routeToPath, migrateHashIfNeeded, type Route, type SpaceKey, type RiverQuery } from './route';
-import { getDocNeighbors, getRecentDocs, isPublicPath, resumeTarget } from './history';
+import { getRecentDocs, isPublicPath, resumeTarget } from './history';
 import { bookFromVolume, clearSilkCatalog } from './silk';
 import { SilkRibbon } from './space/SilkRibbon';
 import { purgePublicDrafts } from './drafts';
@@ -33,6 +33,7 @@ import { lazySpace } from './lazySpace';
 const River = lazySpace(() => import('./space/River').then(m => ({ default: m.River })));
 const Graph = lazySpace(() => import('./space/Graph').then(m => ({ default: m.Graph })));
 const Archive = lazySpace(() => import('./space/Archive').then(m => ({ default: m.Archive })));
+const ArchiveShelf = lazySpace(() => import('./space/archive/ArchiveShelf').then(m => ({ default: m.ArchiveShelf })));
 const Study = lazySpace(() => import('./space/Study').then(m => ({ default: m.Study })));
 const ChapterPanel = lazySpace(() => import('./space/ChapterPanel').then(m => ({ default: m.ChapterPanel })));
 const Museum = lazySpace(() => import('./space/Museum').then(m => ({ default: m.Museum })));
@@ -315,25 +316,29 @@ export default function App() {
 
   /* 阅读位置：切换前记下当前路由的滚动，应用后恢复目标路由的滚动（A3：节流持久化） */
   useEffect(() => {
-    const host = mainRef.current;
-    if (!host) return;
+    const pick = () => readScroller() || mainRef.current;
+    const host0 = pick();
+    if (!host0) return;
     const prevId = routeId(routeRef.current);
     let timer = 0;
     const onScroll = () => {
+      const host = pick();
+      if (!host) return;
       scrollMemo.set(prevId, host.scrollTop);
       clearTimeout(timer);
       timer = window.setTimeout(persistScroll, 500);
     };
-    host.addEventListener('scroll', onScroll, { passive: true });
+    host0.addEventListener('scroll', onScroll, { passive: true });
     return () => {
-      host.removeEventListener('scroll', onScroll);
+      host0.removeEventListener('scroll', onScroll);
       clearTimeout(timer);
-      scrollMemo.set(routeId(route), host.scrollTop);
+      const host = pick();
+      if (host) scrollMemo.set(routeId(route), host.scrollTop);
       persistScroll();
     };
   }, [route, gateDone]);
   useEffect(() => {
-    const host = mainRef.current;
+    const host = readScroller() || mainRef.current;
     if (!host || !gateDone) return;
     if (route.v === 'doc' && (route.h || route.q || route.ev != null)) return; // 锚点 / 检索词 / 证据深链：交给正文定位
     const saved = scrollMemo.get(routeId(route));
@@ -564,9 +569,8 @@ export default function App() {
       if ((e.key === '[' || e.key === ']') && !e.metaKey && !e.ctrlKey && !e.altKey) {
         if (routeRef.current.v === 'chapter') return;
         const cur = routeRef.current.v === 'doc' ? routeRef.current.path : '';
-        const neigh = getDocNeighbors().filter(isPublicPath);
         const recents = getRecentDocs().map(d => d.path).filter(isPublicPath);
-        const base = (neigh.length ? neigh : recents).filter(p => p !== cur);
+        const base = recents.filter(p => p !== cur);
         const paths = cur && isPublicPath(cur) ? [cur, ...base] : base;
         if (paths.length < 2) return;
         e.preventDefault();
@@ -817,16 +821,26 @@ export default function App() {
                 />
               </Lazy>
             )}
-            {spaceKey === 'archive' && (
+            {spaceKey === 'archive' && route.v === 'doc' && (
               <Lazy>
                 <Archive
-                  path={route.v === 'doc' ? route.path : '00-知识库首页'}
-                  anchor={route.v === 'doc' ? route.h : undefined}
-                  evidenceId={route.v === 'doc' ? route.ev : undefined}
-                  query={route.v === 'doc' ? route.q : undefined}
+                  path={route.path}
+                  anchor={route.h}
+                  evidenceId={route.ev}
+                  query={route.q}
                   onNavigate={openDoc} onOpenPerson={openPerson}
                   onOpenVolume={openVolume} onOpenDomain={openDomain} onOpenStage={openStage}
                   onOpenImagery={openImagery} onOpenEvent={openRiver}
+                />
+              </Lazy>
+            )}
+            {spaceKey === 'archive' && route.v !== 'doc' && (
+              <Lazy>
+                <ArchiveShelf
+                  onOpenDoc={openDoc}
+                  onOpenVolume={openVolume}
+                  onOpenDomain={openDomain}
+                  onOpenStage={openStage}
                 />
               </Lazy>
             )}
