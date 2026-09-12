@@ -52,7 +52,7 @@ export function ReaderSettings({ cfg, onChange }: { cfg: ReaderCfg; onChange: (c
     </div>
   );
   return (
-    <div className="rs glass" role="dialog" aria-label="阅读器设置">
+    <div className="rs surface" role="dialog" aria-label="阅读器设置">
       <p className="rs-row"><span>字号</span>{seg([{ v: 17 as const, label: '小' }, { v: 19 as const, label: '中' }, { v: 21 as const, label: '大' }], cfg.fs, fs => onChange({ ...cfg, fs }))}</p>
       <p className="rs-row"><span>行宽</span>{seg([{ v: 'n' as const, label: '窄' }, { v: 'm' as const, label: '适中' }, { v: 'w' as const, label: '宽' }], cfg.mw, mw => onChange({ ...cfg, mw }))}</p>
       <p className="rs-row"><span>字体</span>{seg([{ v: 'serif' as const, label: '宋体' }, { v: 'sans' as const, label: '黑体' }], cfg.ff, ff => onChange({ ...cfg, ff }))}</p>

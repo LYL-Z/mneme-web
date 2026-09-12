@@ -14,7 +14,7 @@ export function HighlightPop({
 }) {
   return (
     <div
-      className="ar-pop glass"
+      className="ar-pop surface"
       style={{ left: pop.x, top: pop.y }}
       onMouseDown={e => e.preventDefault()}
     >

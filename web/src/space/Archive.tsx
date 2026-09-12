@@ -407,7 +407,7 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
             <div className="ar-pane sec" ref={secPane}>
               {secPath ? (
                 <>
-                  <div className="ar-sec-bar glass">
+                  <div className="ar-sec-bar surface">
                     <button className="ar-sec-back" onClick={() => setSecPath(null)}>更换文档</button>
                     <span className="ar-sec-path">{secPath.replace(/\.md$/, '').split('/').pop()}</span>
                     <button className="ar-sec-x" onClick={() => { setSecPath(null); }} aria-label="关闭对照栏">×</button>

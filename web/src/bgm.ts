@@ -96,10 +96,10 @@ export const bgmSub = (fn: (s: BgmState) => void) => {
   return () => { subs.delete(fn); };
 };
 
-/** 致谢公告关掉：记下本会话已放行，并按默认开出声。 */
+/** 致谢公告关掉：记下本会话已放行。不把用户已关掉的音乐强行打开。 */
 export function tryPlayBgm(): void {
   markAnnoClosed();
-  bgmSet({ on: true });
+  syncPlay();
 }
 
 /** 本会话已经关过公告（刷新）：按偏好续播，不把用户的暂停改回去。 */

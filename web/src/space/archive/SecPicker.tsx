@@ -18,7 +18,7 @@ export function SecPicker({ onPick, suggested }: { onPick: (path: string) => voi
   }, [q]);
   const recents = getRecentDocs().filter(d => isPublicPath(d.path)).slice(0, 6);
   return (
-    <div className="ar-picker glass">
+    <div className="ar-picker surface">
       <h2>对照阅读 · 选择右栏文档</h2>
       {suggested && isPublicPath(suggested.path) && (
         <button className="ar-pick-sug" onClick={() => onPick(suggested.path)} title={suggested.path}>

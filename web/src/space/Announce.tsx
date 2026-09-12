@@ -3,10 +3,11 @@ import { animate, stagger } from 'animejs';
 import { annihilate, prepareSnapshot } from '../annihilate';
 import { canAnnihilate } from '../immersive';
 import { tryPlayBgm } from '../bgm';
+import { useFocusTrap } from '../focusTrap';
 
 /**
  * 致谢公告：口令通过后、进首页前弹一次（sessionStorage mneme-anno）。
- * 关闭这一下是用户手势——默认在此时打开背景曲。
+ * 关闭这一下是用户手势——按已存偏好决定是否出声。
  */
 const SPONSORS = [
   ['openai', 'OpenAI'], ['huawei', 'Huawei'], ['claude', 'Claude'], ['apple', 'Apple'], ['github', 'GitHub'],
@@ -15,11 +16,23 @@ const SPONSORS = [
 
 export function Announce({ onClose }: { onClose: () => void }) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const closing = useRef(false);
+
+  const close = () => {
+    if (closing.current) return;
+    closing.current = true;
+    tryPlayBgm();
+    const card = cardRef.current;
+    if (card && canAnnihilate()) annihilate(card, onClose);
+    else onClose();
+  };
+
+  useFocusTrap(cardRef, true, close);
 
   useEffect(() => {
     const el = rootRef.current;
-    const card = el?.querySelector('.anno-card');
+    const card = cardRef.current;
     const logos = el?.querySelectorAll('.anno-logo');
     if (!el || !card || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     animate(card, {
@@ -32,30 +45,26 @@ export function Announce({ onClose }: { onClose: () => void }) {
     });
   }, []);
 
-  /* v5 · 空闲预采样：html2canvas 快照缓存 → 关闭时粒子零延迟就位 */
   useEffect(() => {
     const t = window.setTimeout(() => {
-      const card = rootRef.current?.querySelector('.anno-card') as HTMLElement | null;
-      if (card) prepareSnapshot(card);
+      if (cardRef.current) prepareSnapshot(cardRef.current);
     }, 400);
     return () => clearTimeout(t);
   }, []);
 
-  const close = () => {
-    if (closing.current) return;
-    closing.current = true;
-    tryPlayBgm();
-    const card = rootRef.current?.querySelector('.anno-card') as HTMLElement | null;
-    if (card && canAnnihilate()) annihilate(card, onClose);
-    else onClose();
-  };
-
   return (
     <div className="anno-mask" ref={rootRef} onMouseDown={close}>
-      <div className="anno-card glass chrome" onMouseDown={e => e.stopPropagation()}>
+      <div
+        ref={cardRef}
+        className="anno-card glass chrome"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="anno-title"
+        onMouseDown={e => e.stopPropagation()}
+      >
         <div className="anno-glow" aria-hidden />
         <p className="greek anno-kicker">ΕΥΧΑΡΙΣΤΩ · 致谢</p>
-        <h1 className="anno-title">
+        <h1 id="anno-title" className="anno-title">
           感谢家人、同学、朋友们的鼎力支持，
           <br />传记将于 <b className="anno-year">2027</b> 年启动撰写，
           <br />同时感谢各企业的支持。

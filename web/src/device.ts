@@ -4,7 +4,7 @@
  * 视觉视口写入 --vvh / --vv-kb，给 ArkWeb / iOS 地址栏与键盘用。
  */
 
-export type DeviceOs = 'harmony' | 'ios' | 'android' | 'windows' | 'mac' | 'other';
+export type DeviceOs = 'harmony' | 'ios' | 'android' | 'windows' | 'mac' | 'linux' | 'other';
 export type DeviceShell = 'phone' | 'tablet' | 'desktop';
 export type DeviceOrient = 'port' | 'land';
 
@@ -22,11 +22,12 @@ const ua = () => (typeof navigator === 'undefined' ? '' : navigator.userAgent);
 
 export function detectOs(): DeviceOs {
   const s = ua();
-  if (/HarmonyOS|OpenHarmony|ArkWeb|HuaweiBrowser/i.test(s) || /HUAWEI|HONOR/i.test(s)) return 'harmony';
+  if (/HarmonyOS|OpenHarmony|ArkWeb/i.test(s)) return 'harmony';
   const iPadOs = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
   if (/iP(hone|ad|od)/.test(s) || iPadOs) return 'ios';
   if (/Android/i.test(s)) return 'android';
   if (/Windows/i.test(s)) return 'windows';
+  if (/Linux/i.test(s)) return 'linux';
   if (/Mac OS X|Macintosh/i.test(s)) return 'mac';
   return 'other';
 }
@@ -67,7 +68,7 @@ export function readDevice(): DeviceInfo {
 }
 
 export const osLabel = (os: DeviceOs) =>
-  ({ harmony: '鸿蒙', ios: 'iOS', android: 'Android', windows: 'Windows', mac: 'macOS', other: '其他' }[os]);
+  ({ harmony: '鸿蒙', ios: 'iOS', android: 'Android', windows: 'Windows', mac: 'macOS', linux: 'Linux', other: '其他' }[os]);
 
 export const shellLabel = (s: DeviceShell) =>
   ({ phone: '手机', tablet: '平板', desktop: '电脑' }[s]);

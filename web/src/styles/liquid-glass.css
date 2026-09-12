@@ -30,7 +30,7 @@
       L2 左暖右冷边缘色差 —— 液态玻璃标志性的 chromatic aberration 错觉
       L3 顶部聚光 —— 光从上方来，玻璃顶面先亮
    （z-index -1 = 玻璃底色之上、内容之下） */
-.glass::before {
+.chrome.glass::before {
   content: '';
   position: absolute; inset: 0; z-index: -1;
   border-radius: inherit; pointer-events: none;
@@ -74,7 +74,7 @@
 }
 
 /* ④ 鼠标跟随光：坐标由全局 pointermove 委托写入（App.tsx），悬停即亮 */
-.glass::after {
+.chrome.glass::after {
   content: '';
   position: absolute; inset: 0; z-index: -1;
   border-radius: inherit; pointer-events: none;
@@ -82,11 +82,11 @@
   transition: opacity var(--dur-2) var(--ease-out);
   background: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), var(--glass-follow), transparent 70%);
 }
-.glass:hover::after { opacity: 1; }
+.chrome.glass:hover::after { opacity: 1; }
 
 /* ⑤ 降级：减动效 → 置换与扫光关闭，玻璃静止（跟随光由 JS 守卫不启动） */
 @media (prefers-reduced-motion: reduce) {
-  .glass::before { animation: none; }
+  .chrome.glass::before { animation: none; }
   .lg-displacement .chrome.glass {
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);

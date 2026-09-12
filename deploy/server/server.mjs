@@ -149,7 +149,7 @@ app.use('*', async (c, next) => {
   c.header('X-DNS-Prefetch-Control', 'off');
   /* CSP 默认强制；MNEME_CSP_REPORT_ONLY=1 可一键回退为观察模式（应急回滚用） */
   c.header(process.env.MNEME_CSP_REPORT_ONLY === '1' ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy', CSP);
-  if (c.req.path === '/sw.js' || c.req.path === '/offline.html') c.header('Cache-Control', 'no-cache');
+  if (c.req.path === '/sw.js' || c.req.path === '/offline.html' || c.req.path === '/offline.js' || c.req.path === '/boot-device.js') c.header('Cache-Control', 'no-cache');
   if (isHttps(c)) c.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
 });
 
@@ -210,7 +210,7 @@ background:#A9864A;color:#141210;font-size:15px;font-family:inherit}
 .err{color:#C07A6A;font-size:13px;min-height:18px;margin-top:12px}
 </style></head><body><div class="card">
 <h1>ΜΝΗΜΗ</h1><p>Τὸ πρῶτον ἥμισυ τοῦ βίου<br>这是一座私人记忆的数字建筑，请出示访问口令。</p>
-<form id="f"><input id="t" type="password" placeholder="访问口令" autofocus><button type="submit">进入</button>
+<form id="f"><label for="t" style="display:block;text-align:left;font-size:12px;letter-spacing:.12em;color:#C4BBA8;margin:0 0 8px">访问口令</label><input id="t" type="password" placeholder="访问口令" autocomplete="current-password" autofocus><button type="submit">进入</button>
 <div class="err" id="e"></div></form></div>
 <script src="/gate.js" defer></script>
 </body></html>`;
@@ -224,7 +224,7 @@ app.get('/gate.js', (c) => c.body(GATE_JS, 200, { 'Content-Type': 'application/j
 
 app.use('*', async (c, next) => {
   const url = new URL(c.req.url);
-  const open = ['/api/login', '/api/health', '/gate.js', '/sw.js', '/offline.html', '/manifest.webmanifest'];
+  const open = ['/api/login', '/api/health', '/gate.js', '/sw.js', '/offline.html', '/offline.js', '/boot-device.js', '/manifest.webmanifest'];
   if (open.some(p => url.pathname === p)) return next();
   if (getCookie(c, 'mneme_k') === KEY) return next();
   /* Bearer 令牌（自动化调用）：与部署手册示例一致 */

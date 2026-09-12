@@ -2,14 +2,17 @@
  * 缓存：带哈希 /assets + 带 X-Mneme-Cache: public 的公开正文。
  * 绝不缓存私密层、绝密正文、检索、队列、口令页。
  */
-const ASSET = 'mneme-assets-v3';
+const ASSET = 'mneme-assets-v4';
 const DOCS = 'mneme-docs-v1';
 const DOC_MAX = 48;
+
+const isSpaShell = (html) =>
+  html.includes('id="root"') && !/id="f"|访问口令|type="password"/.test(html);
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const c = await caches.open(ASSET);
-    await c.addAll(['/offline.html']).catch(() => {});
+    await c.addAll(['/offline.html', '/offline.js', '/boot-device.js']).catch(() => {});
     self.skipWaiting();
   })());
 });
@@ -46,7 +49,7 @@ self.addEventListener('message', event => {
       const cache = await caches.open(DOCS);
       const keys = await cache.keys();
       const needle = encodeURI(String(data.path));
-      await Promise.all(keys.filter(k => k.url.includes(needle)).map(k => cache.delete(k)));
+      await Promise.all(keys.filter(k => k.url.includes(needle)).map(k => caches.delete(k)));
     })());
   }
 });
@@ -98,11 +101,18 @@ self.addEventListener('fetch', event => {
         const res = await fetch(req);
         if (res.ok) {
           const copy = res.clone();
-          caches.open(ASSET).then(c => c.put('/index.html', copy)).catch(() => {});
+          const html = await copy.text();
+          if (isSpaShell(html)) {
+            caches.open(ASSET).then(c => c.put('/index.html', new Response(html, {
+              status: res.status,
+              statusText: res.statusText,
+              headers: res.headers,
+            }))).catch(() => {});
+          }
         }
         return res;
       } catch {
-        const shell = await caches.match('/index.html') || await caches.match('/');
+        const shell = await caches.match('/index.html');
         if (shell) return shell;
         return (await caches.match('/offline.html')) || Response.error();
       }

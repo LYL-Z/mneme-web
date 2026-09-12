@@ -263,7 +263,7 @@ export function DailySky({ theme, onOpenPerson, onOpenChapter }: {
         </div>
       )}
       {hover && (
-        <div className="ds-tip glass" style={{ left: hover.x + 12, top: hover.y - 30 }}>
+        <div className="ds-tip surface" style={{ left: hover.x + 12, top: hover.y - 30 }}>
           {hover.name}
         </div>
       )}

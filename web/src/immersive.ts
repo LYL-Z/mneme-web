@@ -108,12 +108,14 @@ export function skipHeavyFx(): boolean {
   return false;
 }
 
-/** 弹窗粒子：手机也开，只在减动效 / 关玻璃 / 省流时跳过。密度由档位收。 */
+/** 弹窗粒子：减动效 / 弱档 / 省流 / 手机跳过，避免关致谢打 INP。 */
 export function canAnnihilate(): boolean {
   try {
     if (document.documentElement.classList.contains('no-motion')) return false;
     if (document.documentElement.classList.contains('no-glass')) return false;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+    if (immLevel() === 'smooth') return false;
+    if (document.documentElement.dataset.shell === 'phone') return false;
     const c = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
     if (c?.saveData) return false;
     if (c?.effectiveType === 'slow-2g' || c?.effectiveType === '2g') return false;
@@ -223,5 +225,4 @@ export function watchFps(): void {
   };
   document.addEventListener('visibilitychange', onVis);
   raf = requestAnimationFrame(tick);
-  window.setTimeout(() => { if (lowStreak === 0) stop(); }, 10_000);
 }

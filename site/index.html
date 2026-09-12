@@ -7,40 +7,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="color-scheme" content="light dark" />
     <meta name="robots" content="noindex,nofollow" />
-    <!-- 首屏即写入壳，避免鸿蒙 / iOS 先闪电脑左栏再收成底栏 -->
-    <script>
-      (function () {
-        var ua = navigator.userAgent || '';
-        var os = /HarmonyOS|OpenHarmony|ArkWeb|HuaweiBrowser|HUAWEI|HONOR/i.test(ua) ? 'harmony'
-          : (/iP(hone|ad|od)/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) ? 'ios'
-          : /Android/i.test(ua) ? 'android'
-          : /Windows/i.test(ua) ? 'windows'
-          : /Mac OS X|Macintosh/i.test(ua) ? 'mac' : 'other';
-        var vv = window.visualViewport;
-        var w = (vv && vv.width) || innerWidth;
-        var h = (vv && vv.height) || innerHeight;
-        var short = Math.min(w, h);
-        var fine = false;
-        try { fine = matchMedia('(hover: hover) and (pointer: fine)').matches; } catch (e) {}
-        var shell = (short <= 520 || w <= 720 || h <= 520) ? 'phone'
-          : !fine ? 'tablet'
-          : w <= 1180 ? 'tablet' : 'desktop';
-        var el = document.documentElement;
-        el.dataset.os = os;
-        el.dataset.shell = shell;
-        el.dataset.orient = w > h ? 'land' : 'port';
-        var coarse = true;
-        try { coarse = matchMedia('(pointer: coarse)').matches || matchMedia('(hover: none)').matches; } catch (e2) {}
-        el.dataset.pointer = coarse ? 'coarse' : 'fine';
-        var stand = false;
-        try { stand = matchMedia('(display-mode: standalone)').matches || !!navigator.standalone; } catch (e3) {}
-        el.dataset.display = stand ? 'standalone' : 'browser';
-        if (w >= 1600) el.dataset.wide = '1';
-        var bar = shell !== 'phone' ? '68px' : (w > h ? '52px' : os === 'harmony' ? '72px' : os === 'android' ? '70px' : '68px');
-        el.style.setProperty('--phone-bar', bar);
-        el.style.setProperty('--vvh', Math.round(h) + 'px');
-      })();
-    </script>
+    <!-- 首屏即写入壳。外置以通过 CSP script-src 'self'，避免鸿蒙 / iOS 先闪电脑左栏 -->
+    <script src="/boot-device.js"></script>
     <meta name="description" content="ΜΝΗΜΗ · 刘佑林的前半生 · 数字传记装置" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F5F0E6" />
@@ -72,8 +40,8 @@
     <meta name="twitter:image" content="/icon-512.png" />
 
     <title>ΜΝΗΜΗ · 刘佑林的前半生</title>
-    <script type="module" crossorigin src="/assets/index-CXH5riC_.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BieA6w-w.css">
+    <script type="module" crossorigin src="/assets/index-DTLqG4rG.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DzqdZ9no.css">
   </head>
   <body>
     <div id="root"></div>

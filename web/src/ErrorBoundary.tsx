@@ -42,7 +42,9 @@ export default class ErrorBoundary extends Component<Props, State> {
       <div className="eb-panel" role="alert">
         <p className="eb-title">{stale ? '这一页的程序包过期了' : `${this.props.label || '此空间'}加载失败`}</p>
         <p className="eb-desc">{stale
-          ? '发版后旧页面还在找已经换过哈希的脚本。请硬刷新一次（Ctrl+Shift+R，或长按刷新）。'
+          ? (typeof document !== 'undefined' && document.documentElement.dataset.shell === 'phone'
+            ? '发版后旧页面还在找已经换过哈希的脚本。请硬刷新一次（长按刷新，或从更多里离场再进）。'
+            : '发版后旧页面还在找已经换过哈希的脚本。请硬刷新一次（Ctrl+Shift+R，或长按刷新）。')
           : '页面渲染时发生异常，其余内容仍可正常浏览。'}</p>
         {!stale && (
           <p className="eb-detail">{String(this.state.error.message || this.state.error).slice(0, 180)}</p>

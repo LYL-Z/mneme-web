@@ -431,7 +431,7 @@ export default function App() {
       if (raf) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
-        const t = (e.target as Element | null)?.closest?.('.glass') as HTMLElement | null;
+        const t = (e.target as Element | null)?.closest?.('.chrome.glass') as HTMLElement | null;
         if (!t) return;
         const r = t.getBoundingClientRect();
         t.style.setProperty('--mx', `${e.clientX - r.left}px`);
@@ -894,7 +894,7 @@ export default function App() {
             onGoSpace={openSpace} onToggleTheme={toggleTheme}
           />
           <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
-          {gPending && <div className="g-pending glass" role="status">g …</div>}
+          {gPending && <div className="g-pending surface" role="status">g …</div>}
           {moreOpen && (
             <div className="more-mask" onMouseDown={() => closeMore()} role="presentation">
               <div ref={moreRef} className="more-sheet glass chrome" onMouseDown={e => e.stopPropagation()} role="dialog" aria-labelledby="more-title" aria-modal="true">

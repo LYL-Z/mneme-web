@@ -1,6 +1,7 @@
 /**
  * ΜΝΗΜΗ · M1 只读 ETL（v3 §4.3 schema）
- * 对 vault 绝对只读；私密层零读取；公开层敏感字段入库前掩码。
+ * 对 vault 绝对只读（网站不写回）。私密层入库但零出站（is_private=1，API 未解锁当 404）。
+ * 附件二进制仍不读。公开层敏感字段入库前掩码。
  * 产物：ingest/mneme.db（SQLite，本地开发库）+ ingest/snapshot.json（PG 灌库快照）
  * 运行：node --experimental-sqlite ingest.mjs
  * 增量：mtime 未变且 ingest 版本一致时跳过读盘，仍全量重建 SQLite（FTS/实体需全局重算）。
@@ -191,10 +192,11 @@ const linksFromText = (text) => {
   }
   return links;
 };
+const YEAR_HI = new Date().getFullYear() + 1;
 const yearsFromText = (text) => {
   const years = new Set();
   for (const m of text.matchAll(/(?<!\d)(20[0-2]\d)(?!\d)/g)) {
-    const y = +m[1]; if (y >= 2000 && y <= 2026) years.add(y);
+    const y = +m[1]; if (y >= 2000 && y <= YEAR_HI) years.add(y);
   }
   return [...years].sort();
 };
@@ -538,7 +540,7 @@ const timeline = [
 for (const d of parsed.filter(x => x.domain === '背景资料')) {
   const ym = /(场景稿|年份|时代底板)/.test(d.rel) ? d.rel.match(/(20[0-2]\d)/) : d.title.match(/^(20[0-2]\d)/);
   const y = ym ? +ym[1] : null;
-  if (y >= 2007 && y <= 2026) timeline.push({ year: y, month: null, exact: null, stage: '跨学段', volume: null, kind: 'background', title: d.title, ref: d.rel });
+  if (y >= 2007 && y <= YEAR_HI) timeline.push({ year: y, month: null, exact: null, stage: '跨学段', volume: null, kind: 'background', title: d.title, ref: d.rel });
 }
 const yearDensity = {};
 for (const d of parsed) for (const y of d.years) yearDensity[y] = (yearDensity[y] || 0) + 1;

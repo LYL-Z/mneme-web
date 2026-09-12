@@ -793,12 +793,12 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onOpenPerson, onClearFo
         onClick={onClick}
         onDoubleClick={onDoubleClick}
       />
-      <div className="gp-tip glass" ref={tipRef} style={{ opacity: 0 }}>
+      <div className="gp-tip surface" ref={tipRef} style={{ opacity: 0 }}>
         {hover && <><b>{hover.name}</b><span>{hover.locked ? '绝密档案 · 需管理员密码' : `${hover.grp} · 提及 ${hover.mention}`}</span></>}
       </div>
 
       {/* v7 · 人物搜索（常驻，命中即飞行定位） */}
-      <div className={`gp-search glass ${qFocus && qHits.length ? 'open' : ''}`}>
+      <div className={`gp-search surface ${qFocus && qHits.length ? 'open' : ''}`}>
         <input
           className="gp-search-q" value={q}
           onChange={e => { setQ(e.target.value); setQFocus(true); }}
@@ -833,7 +833,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onOpenPerson, onClearFo
         </button>
       </div>
 
-      <div className="gp-legend glass">
+      <div className="gp-legend surface">
         {legend.map(l => (
           <button
             key={l.name}
@@ -860,7 +860,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onOpenPerson, onClearFo
       {listOpen && (
         <div
           ref={rosterRef}
-          className="gp-roster glass"
+          className="gp-roster surface"
           role="dialog"
           aria-label="人物星表"
           onKeyDown={e => {

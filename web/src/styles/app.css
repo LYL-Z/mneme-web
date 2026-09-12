@@ -125,7 +125,6 @@
   color: var(--ink-soft); font: inherit; font-size: var(--fs-s);
   padding: 6px 10px; border-radius: 999px; cursor: pointer;
 }
-html.focus-read .rail,
 html.focus-read .monument,
 html.focus-read .st-orbitry,
 html.focus-read .st-volumes,
@@ -135,6 +134,12 @@ html.focus-read .toc-hint,
 html.focus-read .ck-hint,
 html.focus-read .pref-hint { display: none !important; }
 html.focus-read .desk { grid-template-columns: 1fr; }
+html[data-shell="desktop"].focus-read .rail,
+html[data-shell="tablet"].focus-read .rail { display: none !important; }
+html[data-shell="phone"].focus-read .rail { display: flex !important; }
+html[data-shell="phone"].focus-read .desk {
+  grid-template-rows: auto 1fr var(--phone-bar);
+}
 html.focus-read .topbar { grid-column: 1; }
 html.focus-read .space-host { grid-column: 1; }
 html.focus-read .silk { display: flex; }
@@ -277,7 +282,14 @@ html.page-hidden .glass::after {
 .sg-greek { font-size: var(--fs-xs); color: var(--bronze); margin: 0 0 10px; letter-spacing: 0.3em; }
 .sg :is(h1,h3) { margin: 0; font-size: var(--fs-h2); font-weight: 600; letter-spacing: 0.12em; }
 .sg-sub { margin: 10px 0 20px; font-size: var(--fs-s); color: var(--ink-faint); line-height: 1.8; }
-.sg-row { display: flex; gap: 10px; }
+.sg-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.sg-lab {
+  flex: 1 1 100%;
+  text-align: left;
+  font-size: var(--fs-xs);
+  color: var(--ink-soft);
+  letter-spacing: 0.12em;
+}
 .sg-input {
   flex: 1; padding: 12px 16px; border-radius: 14px;
   border: 1px solid var(--glass-border); background: color-mix(in srgb, var(--paper) 55%, transparent);

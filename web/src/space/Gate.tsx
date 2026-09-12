@@ -88,7 +88,7 @@ export function Gate({ onDone }: { onDone: () => void }) {
 
   return (
     <div
-      className="gate" ref={rootRef} role="button" tabIndex={0}
+      className="gate" ref={rootRef}
       onClick={skip}
       onKeyDown={e => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') skip(); }}
       title="点击任意处 / Esc 跳过序章"

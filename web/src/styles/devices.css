@@ -32,6 +32,9 @@ html[data-os="windows"] {
 html[data-os="mac"] {
   --sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
 }
+html[data-os="linux"] {
+  --sans: "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Micro Hei", sans-serif;
+}
 
 html[data-os="harmony"] .space-host,
 html[data-os="harmony"] .ar-pane,
@@ -102,7 +105,7 @@ html[data-shell="phone"] .rail-tabs {
 html[data-shell="phone"] .rail-tab {
   flex: 1; min-width: 0;
   border: none; background: transparent;
-  font: inherit; font-size: 10px; letter-spacing: 0.08em;
+  font: inherit; font-size: 12px; letter-spacing: 0.06em;
   color: var(--ink-soft); text-decoration: none;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 2px;
@@ -122,7 +125,6 @@ html[data-shell="phone"] .topbar {
 }
 html[data-shell="phone"] .top-search kbd,
 html[data-shell="phone"] .top-keys,
-html[data-shell="phone"] .top-copy,
 html[data-shell="phone"] .top-vault,
 html[data-shell="phone"] .nav-logout,
 html[data-shell="phone"] .toc-hint,
@@ -473,8 +475,16 @@ html[data-os="android"][data-imm="smooth"] .glass:not(.chrome) {
   -webkit-backdrop-filter: none;
 }
 
+/* 浏览器态也给顶栏刘海，不只 standalone */
+html[data-display="browser"] .topbar,
+html[data-display="standalone"] .topbar {
+  padding-top: var(--safe-t);
+  height: calc(var(--top-h) + var(--safe-t));
+}
+
 /* iOS：主屏独立窗口补刘海；橡皮筋只在滚动容器 */
 html[data-os="ios"] body { overscroll-behavior-y: none; }
-html[data-os="ios"][data-display="standalone"] .desk {
+html[data-os="ios"][data-display="standalone"] .desk,
+html[data-os="ios"][data-display="browser"] .desk {
   height: var(--vvh, 100dvh);
 }

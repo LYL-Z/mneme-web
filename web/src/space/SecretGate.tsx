@@ -94,7 +94,9 @@ export function SecretGate() {
         <h1 id="sg-title">此为绝密档案</h1>
         <p className="sg-sub">需输入管理员密码方可开启。密码持有者：库主本人。</p>
         <div className="sg-row">
+          <label className="sg-lab" htmlFor="sg-pwd">管理员密码</label>
           <input
+            id="sg-pwd"
             ref={inputRef}
             className={`sg-input ${err ? 'err' : ''}`}
             type="password" inputMode="text" autoComplete="off"

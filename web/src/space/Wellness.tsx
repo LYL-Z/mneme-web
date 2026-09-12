@@ -98,6 +98,9 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
   const [microOn, setMicroOn] = useState(() => {
     try { return localStorage.getItem('mneme-micro-off') !== '1'; } catch { return true; }
   });
+  const [restKeepBgm, setRestKeepBgm] = useState(() => {
+    try { return localStorage.getItem('mneme-rest-keep-bgm') === '1'; } catch { return false; }
+  });
   const [paperLock, setPaperLock] = useState(() => {
     try { return localStorage.getItem('mneme-paper-lock') === '1'; } catch { return false; }
   });
@@ -150,7 +153,8 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
     api.adminStatus().then(s => setSync(s.sync)).catch(() => {});
   }, [panel]);
   useReadingTimer(() => {
-    bgmWas.current = bgmGet().on;
+    const keep = (() => { try { return localStorage.getItem('mneme-rest-keep-bgm') === '1'; } catch { return false; } })();
+    bgmWas.current = !keep && bgmGet().on;
     if (bgmWas.current) bgmSet({ on: false });
     setRest(true);
   });
@@ -164,7 +168,8 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
       st.active += 1;
       if (st.active < 20) return;
       st.active = 0;
-      microBgm.current = bgmGet().on;
+      const keep = (() => { try { return localStorage.getItem('mneme-rest-keep-bgm') === '1'; } catch { return false; } })();
+      microBgm.current = !keep && bgmGet().on;
       if (microBgm.current) bgmSet({ on: false });
       setMicro(true);
     }, 60_000);
@@ -257,7 +262,7 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
                 <input type="checkbox" checked={prefs.contrast} onChange={() => set('contrast')} />
               </label>
               <label className="pref-row">
-                <span>背景音乐<small>默认开 · 关掉致谢公告后才出声 · 音量在右下角调</small></span>
+                <span>背景音乐<small>默认开 · 关掉致谢公告后才出声 · 音量在桌面右下角，手机在本面板下方</small></span>
                 <input type="checkbox" checked={bgm.on} onChange={() => bgmSet({ on: !bgm.on })} />
               </label>
               <label className="pref-row">
@@ -281,6 +286,20 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
                   setMicroOn(next);
                   try { localStorage.setItem('mneme-micro-off', next ? '0' : '1'); } catch { /* */ }
                 }} />
+              </label>
+              <label className="pref-row">
+                <span>休息时不停乐<small>微歇与四十五分钟提示默认会暂停车。勾选后只出字、不关音乐</small></span>
+                <input type="checkbox" checked={restKeepBgm} onChange={() => {
+                  const next = !restKeepBgm;
+                  setRestKeepBgm(next);
+                  try { localStorage.setItem('mneme-rest-keep-bgm', next ? '1' : '0'); } catch { /* */ }
+                }} />
+              </label>
+              <label className="pref-row">
+                <span>背景音乐音量<small>手机与平板在此调节；桌面也可用右下角滑杆</small></span>
+                <input type="range" min="0" max="1" step="0.05" value={bgm.vol}
+                  aria-label="背景音乐音量"
+                  onChange={e => bgmSet({ vol: Number(e.target.value) })} />
               </label>
               <button type="button" className="pref-sys" onClick={() => window.dispatchEvent(new CustomEvent('mneme:theme-system'))}>
                 主题重新跟随系统
@@ -351,7 +370,7 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
       )}
 
       {micro && (
-        <div className="rest-toast glass micro" role="status">
+        <div className="rest-toast surface micro" role="status">
           <p>已经读了 <b>20 分钟</b>。背景曲已先停。站起来一下也行。</p>
           <span className="rest-actions">
             <button type="button" className="ghost" onClick={() => {
@@ -368,7 +387,7 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
         </div>
       )}
       {rest && (
-        <div className="rest-toast glass" role="status">
+        <div className="rest-toast surface" role="status">
           <p>已经连续阅读 <b>45 分钟</b>了。背景曲已先停。歇一会儿，纸还在。</p>
           <span className="rest-actions">
             <button type="button" className="ghost" onClick={() => closeRest(true)}>再读一会儿</button>
