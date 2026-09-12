@@ -113,6 +113,7 @@ export const shelf = ({ unlocked = false } = {}) => withDb(db => {
   return { domains, stages, volumes, recent };
 });
 
+/** 目录序邻篇：书房章序优先，否则同部，再否则同域。 */
 export const catalogNeighbors = (path, { unlocked = false } = {}) => withDb(db => {
   const guard = unlocked ? '' : docGuardSql();
   const doc = db.prepare(`SELECT path, title, domain, volume FROM documents WHERE path=?${guard}`).get(path);
@@ -508,6 +509,9 @@ export function search(q, group, opts = {}) {
   if (!query) return { groups: {}, terms: [] };
   const terms = query.split(/\s+/).filter(Boolean).slice(0, 6);
   const unlocked = !!opts.unlocked;
+  const cap = Math.min(80, Math.max(1, Number(opts.limit) || (group ? 40 : 12)));
+  const off = Math.max(0, Number(opts.offset) || 0);
+  const page = ` LIMIT ${cap} OFFSET ${off}`;
   /* v4 · C3 拼音检索：纯字母输入（全拼/首字母，如 zwz/zhaowenzhu）→ 匹配预计算拼音列 */
   const pinyinMode = /^[a-zA-Z]{2,}$/.test(query.replace(/\s+/g, ''));
   return withDb(db => {
@@ -534,19 +538,19 @@ export function search(q, group, opts = {}) {
       const like = (col) => terms.map(() => `${col} LIKE ?`).join(' AND ');
       const pv = terms.flatMap(t => [`%${t.toLowerCase()}%`]);
       groups.person = db.prepare(`SELECT id,display_name,relation_group,stage,mention_count FROM entities
-        WHERE ${like('pinyin')}${eGuard} ORDER BY mention_count DESC LIMIT 12`).all(...pv, ...eParams);
+        WHERE ${like('pinyin')}${eGuard} ORDER BY mention_count DESC${page}`).all(...pv, ...eParams);
       groups.imagery = db.prepare(`SELECT id,name,candidate,(SELECT COUNT(*) FROM imagery_occurrences o WHERE o.imagery_id=imagery.id) occ
-        FROM imagery WHERE ${like('pinyin')}${imGuard} LIMIT 12`).all(...pv);
+        FROM imagery WHERE ${like('pinyin')}${imGuard}${page}`).all(...pv);
       groups.timeline = db.prepare(`SELECT t.id,t.year,t.month,t.exact_date,t.stage,t.volume,t.kind,t.title FROM timeline_events t
-        WHERE ${like('t.pinyin')}${tlGuard} ORDER BY t.year LIMIT 12`).all(...pv);
-      const vol = db.prepare(`SELECT code,name AS title,'volume' typ FROM volumes WHERE ${like('pinyin')}${volGuard} LIMIT 8`).all(...pv);
+        WHERE ${like('t.pinyin')}${tlGuard} ORDER BY t.year${page}`).all(...pv);
+      const vol = db.prepare(`SELECT code,name AS title,'volume' typ FROM volumes WHERE ${like('pinyin')}${volGuard}${page}`).all(...pv);
       const ch = db.prepare(`SELECT volume_code AS code, title,'chapter' typ, doc_path, seq, is_sample, secret, kind FROM chapters
-        WHERE ${like('pinyin')}${chGuard} LIMIT 12`).all(...pv);
+        WHERE ${like('pinyin')}${chGuard}${page}`).all(...pv);
       groups.volume = vol.concat(ch);
       // 文档标题拼音：ingest 预计算 title_pinyin 列，纯 SQL 命中（server 无需拼音库）
       const qq = terms.map(t => t.toLowerCase());
       const likeDoc = qq.map(() => `title_pinyin LIKE ?`).join(' AND ');
-      groups.doc = db.prepare(`SELECT path,title,domain,stage FROM documents WHERE 1=1${pGuard} AND ${likeDoc} LIMIT 12`)
+      groups.doc = db.prepare(`SELECT path,title,domain,stage FROM documents WHERE 1=1${pGuard} AND ${likeDoc}${page}`)
         .all(...qq.map(t => `%${t}%`)).map(r => ({ ...r, snippet: '' }));
       sanitize();
       return { groups, terms }; // 拼音模式到此为止，不落入中文分支覆盖结果
@@ -557,19 +561,19 @@ export function search(q, group, opts = {}) {
         // <3 字符走 LIKE 兜底（trigram 最小 3 字符）
         const where = terms.map(() => "(title LIKE ? OR body LIKE ?)").join(' AND ');
         const p = terms.flatMap(t => [`%${t}%`, `%${t}%`]);
-        rows = db.prepare(`SELECT path,title,domain,stage FROM documents WHERE 1=1${pGuard} AND ${where} LIMIT 30`).all(...p)
+        rows = db.prepare(`SELECT path,title,domain,stage FROM documents WHERE 1=1${pGuard} AND ${where}${page}`).all(...p)
           .map(r => ({ ...r, snippet: '' }));
       } else {
         const match = terms.map(t => `"${t.replace(/"/g, '')}"`).join(' AND ');
         /* 修复：原 FTS 分支只硬编码排除「问卷作答全文」，缺 is_private=0 —— 检索出口唯一漏私密的一支 */
         try {
           rows = db.prepare(`SELECT files_fts.path, files_fts.title, d.domain, d.stage, snippet(files_fts,-1,'<mark>','</mark>','…',16) sn
-          FROM files_fts JOIN documents d ON d.id=files_fts.doc_id WHERE files_fts MATCH ?${dGuard} ORDER BY rank LIMIT 30`).all(match);
+          FROM files_fts JOIN documents d ON d.id=files_fts.doc_id WHERE files_fts MATCH ?${dGuard} ORDER BY rank${page}`).all(match);
         } catch {
           /* 运行环境的 SQLite 未编译 FTS5（如部分精简发行版）→ LIKE 兜底，功能降级不崩 */
           const where = terms.map(() => "(title LIKE ? OR body LIKE ?)").join(' AND ');
           const p = terms.flatMap(t => [`%${t}%`, `%${t}%`]);
-          rows = db.prepare(`SELECT path,title,domain,stage FROM documents WHERE 1=1${pGuard} AND ${where} LIMIT 30`).all(...p)
+          rows = db.prepare(`SELECT path,title,domain,stage FROM documents WHERE 1=1${pGuard} AND ${where}${page}`).all(...p)
             .map(r => ({ ...r, snippet: '' }));
         }
       }
@@ -578,30 +582,30 @@ export function search(q, group, opts = {}) {
     if (!group || group === 'person') {
       const where = terms.map(() => "(display_name LIKE ? OR std_id LIKE ?)").join(' AND ');
       groups.person = db.prepare(`SELECT id,display_name,relation_group,stage,mention_count FROM entities WHERE ${where}${eGuard}
-        ORDER BY mention_count DESC LIMIT 12`).all(...terms.flatMap(t => [`%${t}%`, `%${t}%`]), ...eParams);
+        ORDER BY mention_count DESC${page}`).all(...terms.flatMap(t => [`%${t}%`, `%${t}%`]), ...eParams);
     }
     if (!group || group === 'timeline') {
       const where = terms.map(() => 't.title LIKE ?').join(' AND ');
       groups.timeline = db.prepare(`SELECT t.id,t.year,t.month,t.exact_date,t.stage,t.volume,t.kind,t.title FROM timeline_events t
-        WHERE ${where}${tlGuard} ORDER BY t.year LIMIT 12`).all(...terms.map(t => `%${t}%`));
+        WHERE ${where}${tlGuard} ORDER BY t.year${page}`).all(...terms.map(t => `%${t}%`));
     }
     if (!group || group === 'imagery') {
       const where = terms.map(() => 'name LIKE ?').join(' AND ');
       groups.imagery = db.prepare(`SELECT id,name,candidate,(SELECT COUNT(*) FROM imagery_occurrences o WHERE o.imagery_id=imagery.id) occ
-        FROM imagery WHERE ${where}${imGuard} LIMIT 12`).all(...terms.map(t => `%${t}%`));
+        FROM imagery WHERE ${where}${imGuard}${page}`).all(...terms.map(t => `%${t}%`));
     }
     if (!group || group === 'volume') {
-      groups.volume = db.prepare(`SELECT code,name AS title,'volume' typ FROM volumes WHERE name LIKE ?${volGuard} LIMIT 8`).all(...terms.map(t => `%${query}%`));
-      if (groups.volume.length < 8) {
+      groups.volume = db.prepare(`SELECT code,name AS title,'volume' typ FROM volumes WHERE name LIKE ?${volGuard}${page}`).all(...terms.map(t => `%${query}%`));
+      if (groups.volume.length < cap) {
         const where = terms.map(() => 'title LIKE ?').join(' AND ');
-        const ch = db.prepare(`SELECT volume_code AS code, title,'chapter' typ, doc_path, seq, is_sample, secret, kind FROM chapters WHERE ${where}${chGuard} LIMIT 12`).all(...terms.map(t => `%${t}%`));
+        const ch = db.prepare(`SELECT volume_code AS code, title,'chapter' typ, doc_path, seq, is_sample, secret, kind FROM chapters WHERE ${where}${chGuard}${page}`).all(...terms.map(t => `%${t}%`));
         groups.volume = groups.volume.concat(ch);
       }
     }
     if (!group || group === 'questionnaire') {
       const where = terms.map(() => '(respondent_label LIKE ? OR answers LIKE ?)').join(' AND ');
       const qGuard = unlocked ? '' : questionnaireGuardSql();
-      groups.questionnaire = db.prepare(`SELECT id,respondent_label,doc_path FROM questionnaires WHERE ${where}${qGuard} LIMIT 12`)
+      groups.questionnaire = db.prepare(`SELECT id,respondent_label,doc_path FROM questionnaires WHERE ${where}${qGuard}${page}`)
         .all(...terms.flatMap(t => [`%${t}%`, `%${t}%`]))
         /* 即便行被父母卷守卫挡下，身份字段仍不能外泄——非父母卷一律只回 {id, locked} */
         .map(r => (unlocked || isParentLabel(r.respondent_label)) ? r : { id: r.id, locked: true });

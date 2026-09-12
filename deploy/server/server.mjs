@@ -103,13 +103,28 @@ const SECRET_TOKEN = SECRET_PASSWORD
 const isUnlocked = (c) => !!SECRET_TOKEN && getCookie(c, SECRET_COOKIE) === SECRET_TOKEN;
 const ADMIN_COOKIE = 'mneme_a';
 const ADMIN_KEY = crypto.createHash('sha256').update(`mneme-admin:${ADMIN_TOKEN}`).digest('hex').slice(0, 32);
+/* 波4 · 恒定时间比较：口令 / 令牌 / 管理口令一律不按字符短路，避免计时侧信道 */
+const safeEq = (a, b) => {
+  const x = Buffer.from(String(a ?? ''), 'utf8');
+  const y = Buffer.from(String(b ?? ''), 'utf8');
+  /* timingSafeEqual 要求等长；先用一次 hash 对齐长度，再恒定时间比对 */
+  const hx = crypto.createHash('sha256').update(x).digest();
+  const hy = crypto.createHash('sha256').update(y).digest();
+  return crypto.timingSafeEqual(hx, hy) && String(a ?? '') === String(b ?? '');
+};
 const isAdmin = (c) => {
-  if (getCookie(c, ADMIN_COOKIE) === ADMIN_KEY) return true;
-  if ((c.req.header('x-admin-token') || '') === ADMIN_TOKEN) return true;
+  if (safeEq(getCookie(c, ADMIN_COOKIE) || '', ADMIN_KEY)) return true;
+  if (safeEq(c.req.header('x-admin-token') || '', ADMIN_TOKEN)) return true;
   const bearer = (c.req.header('authorization') || '').replace(/^Bearer\s+/i, '').trim();
-  return bearer === ADMIN_TOKEN;
+  return safeEq(bearer, ADMIN_TOKEN);
 };
 const locked = (c) => c.json({ error: 'locked', message: '此为绝密档案，需输入管理员密码' }, 403);
+/* 已通过访问口令（cookie 或 Bearer）。health / overview 据此决定信息量。 */
+const isVisitor = (c) => {
+  if (safeEq(getCookie(c, 'mneme_k') || '', KEY)) return true;
+  const bearer = (c.req.header('authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  return safeEq(bearer, TOKEN) || safeEq(bearer, ADMIN_TOKEN);
+};
 const notFound = (c) => c.json({ error: 'not found' }, 404);
 
 /* ---------- Cookie 选项 ----------
@@ -175,16 +190,17 @@ const clientIp = (c) => (
   (c.req.header('x-forwarded-for') || '').split(',')[0].trim()
   || (c.req.header('x-real-ip') || '').trim()
   || (c.req.header('cf-connecting-ip') || '').trim()
+  || 'unknown'
 );
 const loginGate = (ip) => {
-  if (!ip) return true; // 取不到来源时不把全站锁进同一个桶
+  if (!ip) return false; /* 取不到来源仍进 unknown 桶，不敞开 */
   const rec = loginFails.get(ip);
   if (!rec) return true;
   if (Date.now() - rec.t > 60_000) { loginFails.delete(ip); return true; }
   return rec.n < 5;
 };
 const loginFail = (ip) => {
-  if (!ip) return;
+  if (!ip) return; /* 调用处已保证非空 */
   const rec = loginFails.get(ip);
   if (!rec || Date.now() - rec.t > 60_000) loginFails.set(ip, { n: 1, t: Date.now() });
   else { rec.n += 1; rec.t = Date.now(); }
@@ -239,7 +255,7 @@ app.post('/api/login', async (c) => {
   const ip = clientIp(c);
   if (!loginGate(ip)) return c.json({ error: 'too many attempts' }, 429);
   const { token } = await c.req.json().catch(() => ({}));
-  if (token !== TOKEN) { loginFail(ip); return c.json({ error: 'bad token' }, 403); }
+  if (!safeEq(token || '', TOKEN)) { loginFail(ip); return c.json({ error: 'bad token' }, 403); }
   loginFails.delete(ip);
   setCookie(c, 'mneme_k', KEY, cookieOpts(c));
   return c.json({ ok: true });
@@ -251,12 +267,16 @@ app.get('/api/logout', (c) => {
   deleteCookie(c, ADMIN_COOKIE, { path: '/' });
   return c.redirect('/');
 });
-app.get('/api/health', (c) => c.json({
-  ok: true, service: 'mneme', mode: CLOUD ? 'cloud' : 'local', pg: !!process.env.MNEME_PG, build: BUILD,
-  pack: PACK || null,
-  strict: STRICT,
-  write: { vault: false, watch: syncStatus().watching, ai: false },
-}));
+app.get('/api/health', (c) => {
+  /* 波4：未过口令门只回 ok——不对外暴露部署形态、构建标识与运行态 */
+  if (!isVisitor(c)) return c.json({ ok: true });
+  return c.json({
+    ok: true, service: 'mneme', mode: CLOUD ? 'cloud' : 'local', pg: !!process.env.MNEME_PG, build: BUILD,
+    pack: PACK || null,
+    strict: STRICT,
+    write: { vault: false, watch: syncStatus().watching, ai: false },
+  });
+});
 
 /* ---------- 只读 API ---------- */
 /* v4 · A5 问卷回收总数：单一事实来源移到服务端（前端不再硬编码「103+」）。
@@ -265,7 +285,15 @@ const SURVEY_TOTAL = 103;
 /* 只读端点缓存：数据随镜像更新，60 秒浏览器私有缓存足以削掉重复请求，又不至于让重扫描后长期看到旧数据 */
 const cache = (c, secs = 60) => c.header('Cache-Control', `private, max-age=${secs}`);
 
-app.get('/api/overview', (c) => { cache(c); return c.json({ ...store.overview(), surveyTotal: SURVEY_TOTAL }); });
+app.get('/api/overview', (c) => {
+  cache(c);
+  const ov = store.overview();
+  /* 波4：锁定档份数属馆藏内部账，不对外——只对已解锁的管理会话给出 */
+  const showCounts = isAdmin(c) && isUnlocked(c);
+  const out = { ...ov, surveyTotal: SURVEY_TOTAL };
+  if (!showCounts) delete out.secretDocs;
+  return c.json(out);
+});
 app.get('/api/domains', (c) => { cache(c, 300); return c.json(store.domains()); });
 app.get('/api/domains/:name/docs', (c) => {
   cache(c);
@@ -325,7 +353,7 @@ app.post('/api/secret/unlock', async (c) => {
   if (!loginGate(ip)) return c.json({ error: 'too many attempts' }, 429);
   const { password } = await c.req.json().catch(() => ({}));
   if (!SECRET_PASSWORD) return c.json({ error: 'secret not configured' }, 503);
-  if (password !== SECRET_PASSWORD) { loginFail(ip); return c.json({ error: 'bad password' }, 403); }
+  if (!safeEq(password || '', SECRET_PASSWORD)) { loginFail(ip); return c.json({ error: 'bad password' }, 403); }
   loginFails.delete(ip);
   setCookie(c, SECRET_COOKIE, SECRET_TOKEN, secretCookieOpts(c));
   return c.json({ ok: true });
@@ -391,7 +419,9 @@ const sourceGate = (c, rawPath) => {
 app.get('/api/source/*', (c) => {
   const g = sourceGate(c, c.req.path.replace(/^\/api\/source\//, ''));
   if (g.err) return g.err;
-  const file = vaultReady() ? readSource(g.rel) : null;
+  /* 波4：公开层只吐入库已掩码正文；vault 原文仅管理会话可读，私密层始终不可读。 */
+  const admin = isAdmin(c);
+  const file = (vaultReady() && admin && g.cls !== 'private') ? readSource(g.rel) : null;
   const text = file?.text ?? g.doc?.body ?? '';
   if (!file && !g.doc) return notFound(c);
   return c.json({
@@ -432,7 +462,9 @@ app.post('/api/admin/ingest', (c) => {
 });
 
 /* 检索 */
-app.get('/api/search', (c) => c.json(store.search(c.req.query('q') || '', c.req.query('group') || undefined, { unlocked: isUnlocked(c) })));
+app.get('/api/search', (c) => c.json(store.search(c.req.query('q') || '', c.req.query('group') || undefined, {
+  unlocked: isUnlocked(c), offset: +c.req.query('offset') || 0, limit: +c.req.query('limit') || 0,
+})));
 /* v4 · C4 伏应矩阵：创作台账（口令门禁后的登录态内容） */
 app.get('/api/foreshadow', async (c) => c.json(await store.foreshadow({ unlocked: isUnlocked(c) })));
 
@@ -440,7 +472,7 @@ app.get('/api/foreshadow', async (c) => c.json(await store.foreshadow({ unlocked
 app.get('/api/audit/latest', (c) => c.json(store.auditLatest()));
 app.post('/api/admin/rescan', (c) => {
   if (CLOUD) return c.json({ error: 'rescan unavailable in cloud mode (vault stays local)' }, 501);
-  if ((c.req.header('x-admin-token') || '') !== ADMIN_TOKEN) return c.json({ error: 'forbidden' }, 403);
+  if (!isAdmin(c)) return c.json({ error: 'forbidden' }, 403);
   const child = spawn(process.execPath, ['--experimental-sqlite', 'ingest/ingest.mjs'], {
     cwd: path.join(HERE, '..'), stdio: 'ignore', detached: true,
   });
