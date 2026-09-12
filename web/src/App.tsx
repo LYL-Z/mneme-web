@@ -10,6 +10,7 @@ import { SecretGate } from './space/SecretGate';
 import { Wellness } from './space/Wellness';
 import { Announce } from './space/Announce';
 import { BGM } from './space/BGM';
+import { bgmGet, bgmSet, bgmSub } from './bgm';
 import { immLevel, bindGradientBlur, bindPressRipple, watchFps } from './immersive';
 import { Foreshadow } from './space/Foreshadow';
 import { ShortcutsHelp, G_THEN } from './space/Shortcuts';
@@ -55,12 +56,20 @@ const NAV_GROUPS = [
   { label: '治理', spaces: [{ key: 'lighthouse', name: '证据灯塔', sub: '证据' }] },
 ] as const;
 
-const MOBILE_TABS: { label: string; go: SpaceKey; match: readonly SpaceKey[] }[] = [
-  { label: '阅读', go: 'archive', match: ['archive'] },
-  { label: '资料', go: 'graph', match: ['graph', 'river', 'themes', 'voices'] },
-  { label: '书稿', go: 'study', match: ['study'] },
+const MOBILE_TABS: { label: string; kind: 'read' | 'data' | 'book'; go: SpaceKey; match: readonly SpaceKey[] }[] = [
+  { label: '阅读', kind: 'read', go: 'archive', match: ['archive'] },
+  { label: '资料', kind: 'data', go: 'graph', match: ['graph', 'river', 'themes', 'voices'] },
+  { label: '书稿', kind: 'book', go: 'study', match: ['study'] },
 ];
 const MORE_KEYS: SpaceKey[] = ['stars', 'museum', 'lighthouse'];
+
+function PhoneTabIcon({ kind }: { kind: 'read' | 'data' | 'book' | 'more' }) {
+  const p = { width: 22, height: 22, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  if (kind === 'read') return <svg {...p} aria-hidden><path d="M4 5.2h7.4A3.2 3.2 0 0 1 14.6 8.4V20H7.4A3.4 3.4 0 0 0 4 23.4Z" /><path d="M20 5.2h-7.4A3.2 3.2 0 0 0 9.4 8.4V20h7.2A3.4 3.4 0 0 1 20 23.4Z" /></svg>;
+  if (kind === 'data') return <svg {...p} aria-hidden><circle cx="8" cy="8" r="2.2" /><circle cx="16.5" cy="7.2" r="1.7" /><circle cx="12.2" cy="16.2" r="2" /><path d="M9.6 9.6 11.2 14.4M14.8 8.6 13.2 14.4M10.1 8.1 14.8 7.6" /></svg>;
+  if (kind === 'book') return <svg {...p} aria-hidden><path d="M5 4.5h10.2A3.3 3.3 0 0 1 18.5 7.8V20H8.2A3.2 3.2 0 0 0 5 23.2Z" /><path d="M8.4 4.5V20" /></svg>;
+  return <svg {...p} aria-hidden><path d="M5 7h14M5 12h14M5 17h10" /></svg>;
+}
 
 /** 总纲 · 站点目录（Σ 空间一句话导览，v4） */
 const TOC: Record<SpaceKey, { greek: string; name: string; line: string }> = {
@@ -154,11 +163,13 @@ export default function App() {
   const gTimer = useRef(0);
   const [tocOpen, setTocOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [bgmOn, setBgmOn] = useState(() => bgmGet().on);
   const moreRef = useRef<HTMLDivElement>(null);
   const tocRef = useRef<HTMLDivElement>(null);
   const readBarRef = useRef<HTMLSpanElement>(null);
   useFocusTrap(moreRef, moreOpen, () => setMoreOpen(false));
   useFocusTrap(tocRef, tocOpen, () => setTocOpen(false));
+  useEffect(() => bgmSub(s => setBgmOn(s.on)), []);
   const [foCount, setFoCount] = useState<number | null>(null);
   const [theme, setTheme] = useState<'paper' | 'night'>(() => {
     const saved = localStorage.getItem('mneme-theme');
@@ -609,7 +620,8 @@ export default function App() {
                     aria-current={on ? 'page' : undefined}
                     onClick={e => { if (isModifiedClick(e)) return; e.preventDefault(); setMoreOpen(false); if (!on) openSpace(tab.go); }}
                   >
-                    {tab.label}
+                    <span className="rail-tab-ico"><PhoneTabIcon kind={tab.kind} /></span>
+                    <span className="rail-tab-lab">{tab.label}</span>
                   </a>
                 );
               })}
@@ -618,14 +630,15 @@ export default function App() {
                 className={`rail-tab ${moreOpen || route.v === 'foreshadow' || MORE_KEYS.includes(spaceKey) ? 'on' : ''}`}
                 onClick={() => setMoreOpen(v => !v)}
               >
-                更多
+                <span className="rail-tab-ico"><PhoneTabIcon kind="more" /></span>
+                <span className="rail-tab-lab">更多</span>
               </button>
             </nav>
           </aside>
           <header className="topbar">
             <div className="read-bar" aria-hidden="true"><span ref={readBarRef} /></div>
             <button className="top-search" onClick={() => setCkOpen(true)} aria-label="检索全库">
-              <span>检索原文、人物、时间线…</span>
+              <span>检索全库</span>
               <kbd>{ckHint}</kbd>
             </button>
             <button className="top-keys" onClick={() => setHelpOpen(true)} aria-label="键盘快捷键" title="快捷键">
@@ -636,12 +649,7 @@ export default function App() {
               className="top-copy"
               aria-label="复制本页深链"
               title="复制本页深链"
-              onClick={() => {
-                const url = `${location.origin}${location.pathname}${location.search}`;
-                const ok = () => notify('已复制本页深链', 'info');
-                if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(ok).catch(() => notify('复制失败', 'warn'));
-                else notify('复制失败', 'warn');
-              }}
+              onClick={() => copyPermalink()}
             >
               链
             </button>
@@ -807,7 +815,8 @@ export default function App() {
           {moreOpen && (
             <div className="more-mask" onMouseDown={() => setMoreOpen(false)} role="presentation">
               <div ref={moreRef} className="more-sheet glass" onMouseDown={e => e.stopPropagation()} role="dialog" aria-labelledby="more-title" aria-modal="true">
-                <p className="greek more-kicker">ΠΛΕΟΝ</p>
+                <i className="more-grab" aria-hidden />
+                <p className="more-kicker">去往</p>
                 <h1 id="more-title">全馆</h1>
                 <div className="more-list">
                   {NAV_GROUPS.map(g => g.spaces.map(s => (
@@ -826,8 +835,27 @@ export default function App() {
                   <button type="button" className="more-item" onClick={() => { setMoreOpen(false); setTocOpen(true); }}>
                     <b>总纲</b><span>导览</span>
                   </button>
+                </div>
+                <p className="more-sec">本机</p>
+                <div className="more-list">
                   <button type="button" className="more-item" onClick={() => { setMoreOpen(false); window.dispatchEvent(new CustomEvent('mneme:prefs')); }}>
-                    <b>偏好</b><span>动效 · 音乐</span>
+                    <b>偏好</b><span>动效 · 足迹 · 主题跟随系统</span>
+                  </button>
+                  <button type="button" className="more-item" onClick={() => bgmSet({ on: !bgmOn })}>
+                    <b>{bgmOn ? '暂停背景音乐' : '播放背景音乐'}</b><span>音量在偏好里调</span>
+                  </button>
+                  <button type="button" className="more-item" onClick={() => { copyPermalink(); setMoreOpen(false); }}>
+                    <b>复制本页深链</b><span>给自己或给别人</span>
+                  </button>
+                  <button type="button" className="more-item" onClick={() => { setMoreOpen(false); if (!vaultOpen) window.dispatchEvent(new CustomEvent('mneme:locked')); }}>
+                    <b>{vaultOpen ? '绝密已开锁' : '打开绝密档案'}</b><span>管理口令</span>
+                  </button>
+                  <button type="button" className="more-item" onClick={() => {
+                    navigator.serviceWorker?.controller?.postMessage({ type: 'mneme-purge-docs' });
+                    purgePublicDrafts();
+                    window.location.href = '/api/logout';
+                  }}>
+                    <b>离场</b><span>结束这次访问</span>
                   </button>
                 </div>
               </div>

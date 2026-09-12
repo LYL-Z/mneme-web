@@ -1065,7 +1065,15 @@ a.wl:hover { color: var(--bronze); border-color: var(--bronze); }
   padding: 18px 18px calc(16px + env(safe-area-inset-bottom, 0px));
   border-radius: 18px 18px 0 0;
 }
+.more-grab {
+  display: block; width: 36px; height: 4px; margin: 0 auto 12px;
+  border-radius: 999px; background: color-mix(in srgb, var(--ink) 18%, transparent);
+}
 .more-kicker { margin: 0; font-size: var(--fs-s); color: var(--bronze); }
+.more-sec {
+  margin: 18px 0 6px; font-size: var(--fs-xs); color: var(--ink-faint);
+  letter-spacing: 0.16em;
+}
 .more-sheet :is(h1,h3) { margin: 4px 0 12px; font-size: var(--fs-l); font-weight: 600; }
 .more-list { display: flex; flex-direction: column; gap: 2px; }
 .more-item {
@@ -1570,12 +1578,12 @@ mark.hl-local.on {
 .sigwall { position: absolute; top: 0; left: 0; right: 0; aspect-ratio: 100 / 102; height: auto; pointer-events: none; z-index: 0; }
 /* 移动端：3×3 网格阵列（文档流内，覆盖 inline 定位，避免小屏互相叠压与出界） */
 @media (max-width: 760px) {
-  .sigwall {
+  html:not([data-shell]) .sigwall {
     position: relative; height: auto; pointer-events: auto;
     display: grid; grid-template-columns: repeat(3, 1fr);
     gap: 10px 6px; padding: 84px 18px 4px; place-items: center;
   }
-  .sig {
+  html:not([data-shell]) .sig {
     position: static !important; left: auto !important; top: auto !important;
     width: auto !important; max-width: 100px !important;
     transform: rotate(var(--rot, 0deg));
@@ -1857,37 +1865,41 @@ mark.hl-local.on {
   .ar-toc { left: 12px; }
 }
 
-/* 无 JS 回退：宽度 ≤720 当手机。有 data-shell 时以 devices.css 为准（鸿蒙横屏可宽于 720） */
+/* 无 JS 回退：还没写入 data-shell 时，宽度 ≤720 当手机。有壳之后一律走 devices.css */
 @media (max-width: 720px) {
-  .desk {
+  html:not([data-shell]) .desk {
     grid-template-columns: 1fr;
     grid-template-rows: var(--top-h) minmax(0, 1fr) 58px;
   }
-  .rail {
+  html:not([data-shell]) .rail {
     grid-row: 3; grid-column: 1;
     flex-direction: row; align-items: stretch;
     overflow: hidden;
     border-right: none; border-top: 1px solid var(--glass-border);
     padding: 0 calc(6px + env(safe-area-inset-left, 0px)) calc(env(safe-area-inset-bottom, 0px)) calc(6px + env(safe-area-inset-right, 0px));
   }
-  .rail-desk { display: none; }
-  .rail-tabs {
+  html:not([data-shell]) .rail-desk { display: none; }
+  html:not([data-shell]) .rail-tabs {
     display: flex; width: 100%; height: 100%;
     align-items: stretch;
   }
-  .rail-tab {
+  html:not([data-shell]) .rail-tab {
     flex: 1; min-height: 44px; min-width: 0;
     border: none; background: transparent; cursor: pointer;
     font: inherit; font-size: var(--fs-r); letter-spacing: 0.08em;
     color: var(--ink-soft); text-decoration: none;
     display: flex; align-items: center; justify-content: center;
   }
-  .rail-tab.on { color: var(--aegean); font-weight: 600; }
-  .topbar, .space-host { grid-column: 1; }
-  .top-search kbd, .top-keys { display: none; }
+  html:not([data-shell]) .rail-tab.on { color: var(--aegean); font-weight: 600; }
+  html:not([data-shell]) .topbar,
+  html:not([data-shell]) .space-host { grid-column: 1; }
+  html:not([data-shell]) .top-search kbd,
+  html:not([data-shell]) .top-keys { display: none; }
   .toc-hint, .ck-hint { display: none; }
-  .ck-mask { padding-top: 8vh; }
-  input, textarea, select { font-size: 16px; }
+  html:not([data-shell]) .ck-mask { padding-top: 8vh; }
+  html:not([data-shell]) input,
+  html:not([data-shell]) textarea,
+  html:not([data-shell]) select { font-size: 16px; }
 }
 
 @media (max-width: 768px) {

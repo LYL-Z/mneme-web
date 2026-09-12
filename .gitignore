@@ -62,3 +62,18 @@ deploy/web-dist/
 web/.playwright-cli/
 web/gate.yaml
 web/vite.config.ts.timestamp-*.mjs
+
+# 本机验收探针（含默认口令与生产地址）——禁止入库
+web/g5-verify.mjs
+web/g6-prod.mjs
+web/cb-audit.mjs
+web/dev-audit.mjs
+web/v47-verify.mjs
+web/v47-prod.mjs
+web/v48-verify.mjs
+web/v48-prod.mjs
+web/v46-verify.mjs
+web/v46-ripple.mjs
+web/v46-smoke.mjs
+web/v46-prod.mjs
+web/v5-ripple.mjs

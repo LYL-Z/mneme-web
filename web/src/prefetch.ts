@@ -39,7 +39,7 @@ export function prefetchDoc(path: string): void {
 /** 入馆后预热最常走的阅读链：原文 → 书房 → 河。 */
 export function prefetchWorkbench(): void {
   try {
-    if (document.documentElement.dataset.shell === 'phone' || matchMedia('(max-width: 720px)').matches) {
+    if (document.documentElement.dataset.shell === 'phone') {
       window.setTimeout(() => prefetchSpace('archive'), 1400);
       return;
     }

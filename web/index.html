@@ -29,6 +29,15 @@
         el.dataset.os = os;
         el.dataset.shell = shell;
         el.dataset.orient = w > h ? 'land' : 'port';
+        var coarse = true;
+        try { coarse = matchMedia('(pointer: coarse)').matches || matchMedia('(hover: none)').matches; } catch (e2) {}
+        el.dataset.pointer = coarse ? 'coarse' : 'fine';
+        var stand = false;
+        try { stand = matchMedia('(display-mode: standalone)').matches || !!navigator.standalone; } catch (e3) {}
+        el.dataset.display = stand ? 'standalone' : 'browser';
+        if (w >= 1600) el.dataset.wide = '1';
+        var bar = shell !== 'phone' ? '68px' : (w > h ? '52px' : os === 'harmony' ? '72px' : os === 'android' ? '70px' : '68px');
+        el.style.setProperty('--phone-bar', bar);
         el.style.setProperty('--vvh', Math.round(h) + 'px');
       })();
     </script>

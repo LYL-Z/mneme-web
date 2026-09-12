@@ -84,7 +84,15 @@ function applyVars(info: DeviceInfo) {
   root.style.setProperty('--vvh', `${Math.round(vh)}px`);
   const kb = Math.max(0, window.innerHeight - vh - (vv?.offsetTop ?? 0));
   root.style.setProperty('--vv-kb', kb > 64 ? `${Math.round(kb)}px` : '0px');
-  root.style.setProperty('--phone-bar', info.orient === 'land' ? '48px' : '58px');
+  const bar = info.shell !== 'phone' ? '68px'
+    : info.orient === 'land' ? '52px'
+    : info.os === 'harmony' ? '72px'
+    : info.os === 'android' ? '70px'
+    : info.os === 'ios' ? '68px'
+    : '68px';
+  root.style.setProperty('--phone-bar', bar);
+  if (info.vw >= 1600) root.dataset.wide = '1';
+  else delete root.dataset.wide;
 }
 
 let lastSig = '';
@@ -106,6 +114,7 @@ export function bootDevice() {
   vv?.addEventListener('resize', on);
   vv?.addEventListener('scroll', on);
   try { matchMedia('(pointer: coarse)').addEventListener('change', on); } catch { /* */ }
+  try { matchMedia('(hover: hover) and (pointer: fine)').addEventListener('change', on); } catch { /* */ }
   return () => {
     window.removeEventListener('resize', on);
     window.removeEventListener('orientationchange', on);

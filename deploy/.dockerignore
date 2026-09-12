@@ -1,0 +1,5 @@
+server/privacy.local.json
+**/privacy.local.json
+*.log
+tmp/
+.git/

@@ -553,14 +553,14 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
       const o = JSON.parse(localStorage.getItem('mneme-ar-panels') || '{}') as { toc?: boolean };
       if (typeof o.toc === 'boolean') return o.toc;
     } catch { /* 首访 */ }
-    return window.innerWidth >= 1240;
+    return document.documentElement.dataset.shell === 'desktop' && window.innerWidth >= 1240;
   });
   const [inspOpen, setInspOpen] = useState(() => {
     try {
       const o = JSON.parse(localStorage.getItem('mneme-ar-panels') || '{}') as { insp?: boolean };
       if (typeof o.insp === 'boolean') return o.insp;
     } catch { /* 首访 */ }
-    return window.innerWidth >= 1240;
+    return document.documentElement.dataset.shell === 'desktop' && window.innerWidth >= 1240;
   });
   const [findOpen, setFindOpen] = useState(false);
   const [findQ, setFindQ] = useState('');

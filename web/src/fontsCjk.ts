@@ -10,7 +10,7 @@ export function ensureCjkSerif(): void {
 /** 宽屏且非省流：空闲时预热阅读字体。小屏 / 2G / 省流等到打开正文。 */
 export function maybeWarmCjkSerif(): void {
   try {
-    if (matchMedia('(max-width: 960px)').matches) return;
+    if (document.documentElement.dataset.shell === 'phone') return;
     const c = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
     if (c?.saveData) return;
     if (c?.effectiveType === 'slow-2g' || c?.effectiveType === '2g' || c?.effectiveType === '3g') return;

@@ -58,7 +58,6 @@ export function skipHeavyFx(): boolean {
     if (document.documentElement.classList.contains('no-motion')) return true;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return true;
     if (document.documentElement.dataset.shell === 'phone') return true;
-    if (matchMedia('(max-width: 960px)').matches) return true;
     const c = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
     if (c?.saveData) return true;
     if (c?.effectiveType === 'slow-2g' || c?.effectiveType === '2g') return true;

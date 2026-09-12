@@ -17,8 +17,7 @@ import { askUnlock } from '../unlock';
  * - 双击河面：时间之船起航自动向右巡航；单击 / 滚轮 / 拖拽随时停靠
  * - 河水双层相位波；公开层标题按库内原文陈列（人名入库前已脱敏）；诞辰刻度；学段色带
  */
-const IS_NARROW = typeof window !== 'undefined' && window.innerWidth < 640;
-const COL_W = IS_NARROW ? 172 : 210;
+const riverColW = () => document.documentElement.dataset.shell === 'phone' ? 172 : 210;
 /* 学段区间表收敛到 ../stages（Archive 检查器的「学段」互链共用同一份） */
 const Y0 = YEAR_MIN, Y1 = YEAR_MAX;
 const EPOCH = STAGE_EPOCH;
@@ -69,7 +68,8 @@ export function River({ onOpenDoc, focus, onFocusDone, query, onQuery }: {
   const [cruising, setCruising] = useState(false);
   /* v8 · 3.7 纵向列表替代视图（体验规格 §九个空间：时间之河「纵向列表替代视图」）。
      窄屏默认走列表——横向长河在 390px 下虽有拖拽，但信息密度与可达性都差。 */
-  const [listView, setListView] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
+  const [listView, setListView] = useState(() => document.documentElement.dataset.shell === 'phone');
+  const shellRef = useRef(document.documentElement.dataset.shell);
   const rootRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -188,6 +188,17 @@ export function River({ onOpenDoc, focus, onFocusDone, query, onQuery }: {
   }, [tlTick]);
 
   useEffect(() => {
+    const on = () => {
+      const next = document.documentElement.dataset.shell;
+      if (next === shellRef.current) return;
+      shellRef.current = next;
+      setListView(next === 'phone');
+    };
+    window.addEventListener('resize', on, { passive: true });
+    return () => window.removeEventListener('resize', on);
+  }, []);
+
+  useEffect(() => {
     const root = rootRef.current!;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     animate(root.querySelectorAll('.rv-head > *'), {
@@ -288,7 +299,7 @@ export function River({ onOpenDoc, focus, onFocusDone, query, onQuery }: {
     }
     const p = phy.current;
     p.mode = 'idle'; p.v = 0; setCruising(false);
-    p.target = clampOffset((year - Y0) * COL_W - p.viewW / 2 + COL_W / 2);
+    p.target = clampOffset((year - Y0) * riverColW() - p.viewW / 2 + riverColW() / 2);
     p.kick();
     if (eventId != null) {
       stripRef.current?.querySelector(`.rv-card[data-ev="${eventId}"]`)?.classList.add('pulse');
@@ -325,13 +336,13 @@ export function River({ onOpenDoc, focus, onFocusDone, query, onQuery }: {
     if (!years.length || query?.y != null) return;
     const p = phy.current;
     if (p.offset !== 0 || p.target !== 0) return;
-    p.target = Math.max(0, (2007 - Y0) * COL_W - p.viewW * 0.25);
+    p.target = Math.max(0, (2007 - Y0) * riverColW() - p.viewW * 0.25);
     p.offset = p.target;
     apply();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [years.length]);
 
-  const stripW = yearList.length * COL_W + 240;
+  const stripW = yearList.length * riverColW() + 240;
   const BASE = 176;
 
   return (
