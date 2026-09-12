@@ -9,6 +9,7 @@ import { evidenceLabel } from '../evidenceKind';
 import { useFocusTrap } from '../focusTrap';
 import { askUnlock } from '../unlock';
 import { recordPerson } from '../silk';
+import { liveTitle } from '../liveTitle';
 
 /**
  * Σ3 人物星图 · v7「行星旷野」
@@ -245,7 +246,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onOpenPerson, onClearFo
     const n = byIdRef.current.get(id);
     if (n?.locked) { pendingSheet.current = id; askUnlock(); return; }
     api.entity(id).then(d => {
-      if (d) { setSheet(d); pendingSheet.current = null; }
+      if (d) { setSheet(d); pendingSheet.current = null; liveTitle(d.display_name); }
     }).catch((e: unknown) => {
       if (e instanceof ApiError && e.status === 403) {
         pendingSheet.current = id;
@@ -264,6 +265,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onOpenPerson, onClearFo
     return () => window.removeEventListener('mneme:unlocked', onUnlocked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => () => liveTitle(null), []);
   useEffect(() => {
     if (focusPersonId == null) return;
     openSheet(focusPersonId);
@@ -909,7 +911,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onOpenPerson, onClearFo
 
       {sheet && (
         <aside className="gp-sheet glass chrome">
-          <button className="gp-sheet-x" onClick={() => { setSheet(null); if (focusPersonId != null) onClearFocus(); }}>×</button>
+          <button className="gp-sheet-x" onClick={() => { setSheet(null); liveTitle(null); if (focusPersonId != null) onClearFocus(); }} aria-label="关闭">×</button>
           <p className="gp-sheet-grp" style={{ color: GROUP_PALETTE[sheet.relation_group] || 'var(--bronze)' }}>
             {sheet.relation_group}{sheet.stage ? ` · ${sheet.stage}` : ''}
           </p>

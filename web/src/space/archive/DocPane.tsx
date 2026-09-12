@@ -165,14 +165,33 @@ export function DocPane({ path, anchor, evidenceId, query, compact, track, onNav
       });
       cbRef.current.onEvidenceLoci?.(loci);
     }
-    el.querySelectorAll('img').forEach(img => {
+    el.querySelectorAll('img').forEach((img, i) => {
       img.setAttribute('decoding', 'async');
-      if (!img.hasAttribute('loading')) img.setAttribute('loading', 'lazy');
+      if (i === 0) {
+        img.setAttribute('loading', 'eager');
+        img.setAttribute('fetchpriority', 'high');
+      } else if (!img.hasAttribute('loading')) {
+        img.setAttribute('loading', 'lazy');
+      }
       img.classList.add('ar-img-open');
       if (!img.complete) {
         img.classList.add('ar-img-wait');
         img.addEventListener('load', () => img.classList.remove('ar-img-wait'), { once: true });
         img.addEventListener('error', () => img.classList.remove('ar-img-wait'), { once: true });
+      }
+      const alt = (img.getAttribute('alt') || '').trim();
+      if (alt && !img.closest('figure')) {
+        const fig = document.createElement('figure');
+        fig.className = 'ar-fig';
+        const p = img.parentElement;
+        const onlyPic = !!p && p.tagName === 'P' && [...p.childNodes].every(n =>
+          n === img || (n.nodeType === Node.TEXT_NODE && !(n.textContent || '').trim()));
+        if (onlyPic && p) p.replaceWith(fig);
+        else img.replaceWith(fig);
+        fig.append(img);
+        const cap = document.createElement('figcaption');
+        cap.textContent = alt;
+        fig.append(cap);
       }
       img.addEventListener('click', ev => {
         ev.preventDefault();
@@ -315,8 +334,15 @@ export function DocPane({ path, anchor, evidenceId, query, compact, track, onNav
       <button className="mu-ledger" onClick={onRetry}>重新加载 →</button>
     </div>
   );
-  if (state.s === 'loading') return <div className="ar-loading">展开纸页…</div>;
+  if (state.s === 'loading') {
+    return (
+      <div className="ar-skel" role="status" aria-live="polite">
+        <span className="sr-only">展开纸页…</span>
+        <i /><i /><i /><i /><i />
+      </div>
+    );
+  }
   return (
-    <article className={`ar-body ${compact ? 'compact' : ''}`} ref={bodyRef} onClick={onBodyClick} />
+    <article lang="zh-CN" className={`ar-body ${compact ? 'compact' : ''}`} ref={bodyRef} onClick={onBodyClick} />
   );
 }

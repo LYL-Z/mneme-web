@@ -137,6 +137,8 @@ body {
   -webkit-font-smoothing: antialiased;
   font-kerning: normal;
   font-optical-sizing: auto;
+  text-autospace: normal;
+  text-spacing-trim: space-first;
   overflow: hidden;
 }
 h1, h2, h3, .st-title, .anno-title { text-wrap: balance; }

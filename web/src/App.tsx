@@ -25,7 +25,8 @@ import { purgePublicDrafts } from './drafts';
 import { readScroller } from './readHost';
 import { prefetchSpace, prefetchWorkbench } from './prefetch';
 import { isModifiedClick } from './navClick';
-import { copyPermalink } from './cite';
+import { copyPermalink, shareOrCopyPermalink } from './cite';
+import { formatTitle } from './liveTitle';
 import { lazySpace } from './lazySpace';
 
 /* v4 · B1 路由代码分割：d3-force（Graph）与重型空间按需加载，首屏只载 记忆恒星+导航 */
@@ -259,17 +260,27 @@ export default function App() {
     return () => window.removeEventListener('mneme:unlocked', onUnlocked);
   }, []);
 
-  /* 文档标题跟随路由（原先全站恒定「ΜΝΗΜΗ · 刘佑林的前半生」，多标签页/历史记录无法区分） */
+  /* 文档标题跟随路由；人物/原文/意象加载后再用真名覆盖（mneme:live-title） */
+  const routeTitle = route.v === 'space' ? TOC[route.key]?.name
+    : route.v === 'doc' ? decodeURIComponent(route.path).split('/').pop()?.replace(/\.md$/i, '')
+    : route.v === 'person' ? '人物'
+    : route.v === 'imagery' ? '意象'
+    : route.v === 'volume' ? route.code
+    : route.v === 'chapter' ? `章节 ${route.code}-${route.seq}`
+    : '伏应矩阵';
+  const [liveAnnounce, setLiveAnnounce] = useState(routeTitle || '');
   useEffect(() => {
-    const name = route.v === 'space' ? TOC[route.key]?.name
-      : route.v === 'doc' ? decodeURIComponent(route.path).split('/').pop()?.replace(/\.md$/i, '')
-      : route.v === 'person' ? '人物'
-      : route.v === 'imagery' ? '意象'
-      : route.v === 'volume' ? route.code
-      : route.v === 'chapter' ? `章节 ${route.code}-${route.seq}`
-      : '伏应矩阵';
-    document.title = name ? `${name} · ΜΝΗΜΗ` : 'ΜΝΗΜΗ · 刘佑林的前半生';
-  }, [route]);
+    document.title = formatTitle(routeTitle);
+    setLiveAnnounce(routeTitle || '');
+    const on = (e: Event) => {
+      const part = (e as CustomEvent<string | null>).detail;
+      document.title = formatTitle(part ?? routeTitle);
+      if (typeof part === 'string' && part.trim()) setLiveAnnounce(part.trim());
+      else setLiveAnnounce(routeTitle || '');
+    };
+    window.addEventListener('mneme:live-title', on);
+    return () => window.removeEventListener('mneme:live-title', on);
+  }, [routeTitle]);
   useEffect(() => {
     const code = bookFromVolume(route.v === 'volume' || route.v === 'chapter' ? route.code : undefined);
     const root = document.documentElement;
@@ -618,15 +629,7 @@ export default function App() {
   return (
     <>
       <a className="skip-link" href="#mneme-main">跳到正文</a>
-      <p className="sr-only" aria-live="polite">{
-        route.v === 'space' ? TOC[route.key]?.name
-          : route.v === 'doc' ? '原文'
-          : route.v === 'person' ? '人物'
-          : route.v === 'imagery' ? '意象'
-          : route.v === 'volume' ? route.code
-          : route.v === 'chapter' ? `章节 ${route.code}-${route.seq}`
-          : '伏应矩阵'
-      }</p>
+      <p className="sr-only" aria-live="polite">{liveAnnounce}</p>
       <div className="paper-field" />
 
       {/* Liquid Glass 位移滤镜（v3.4）：feTurbulence + feDisplacementMap 的真实折射
@@ -724,9 +727,9 @@ export default function App() {
             <button
               type="button"
               className="top-copy"
-              aria-label="复制本页深链"
-              title="复制本页深链"
-              onClick={() => copyPermalink()}
+              aria-label="分享或复制本页深链"
+              title="分享或复制本页深链"
+              onClick={() => shareOrCopyPermalink()}
             >
               链
             </button>
@@ -927,8 +930,8 @@ export default function App() {
                   <button type="button" className="more-item" onClick={() => bgmSet({ on: !bgmOn })}>
                     <b>{bgmOn ? '暂停背景音乐' : '播放背景音乐'}</b><span>音量在偏好里调</span>
                   </button>
-                  <button type="button" className="more-item" onClick={() => { copyPermalink(); setMoreOpen(false); }}>
-                    <b>复制本页深链</b><span>给自己或给别人</span>
+                  <button type="button" className="more-item" onClick={() => { shareOrCopyPermalink(); setMoreOpen(false); }}>
+                    <b>分享本页</b><span>手机走系统分享，桌面复制深链</span>
                   </button>
                   <button type="button" className="more-item" onClick={() => { setMoreOpen(false); if (!vaultOpen) window.dispatchEvent(new CustomEvent('mneme:locked')); }}>
                     <b>{vaultOpen ? '绝密已开锁' : '打开绝密档案'}</b><span>管理口令</span>

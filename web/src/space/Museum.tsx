@@ -4,6 +4,7 @@ import { ApiError, api, apiErrorMessage, type ImageryItem, type ImageryOcc } fro
 import { notify } from '../toast';
 import { askUnlock } from '../unlock';
 import { recordImagery } from '../silk';
+import { liveTitle } from '../liveTitle';
 
 /**
  * Σ6 意象博物馆 · v3.1
@@ -28,7 +29,7 @@ export function Museum({ focusId, onClearFocus, onOpenDoc }: {
 
   const openCase = async (item: ImageryItem) => {
     if (item.locked) { askUnlock(); return; }
-    if (cur?.item.id === item.id) { setCur(null); return; }
+    if (cur?.item.id === item.id) { setCur(null); liveTitle(null); return; }
     const one = await api.imageryOne(item.id).catch((e: unknown) => {
       if (e instanceof ApiError && e.status === 403) window.dispatchEvent(new CustomEvent('mneme:locked'));
       else notify(apiErrorMessage(e), 'error');
@@ -36,9 +37,12 @@ export function Museum({ focusId, onClearFocus, onOpenDoc }: {
     });
     if (one) {
       recordImagery({ id: item.id, name: item.name });
+      liveTitle(item.name);
       setCur({ item, occ: one.occurrences, ledgerPath: one.ledgerPath, relatedImagery: one.relatedImagery ?? [] });
     }
   };
+
+  useEffect(() => () => liveTitle(null), []);
 
   /* 外部聚焦（书房/主题域的意象互链）：直接展开对应展柜 */
   useEffect(() => {

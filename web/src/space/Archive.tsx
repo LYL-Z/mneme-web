@@ -7,6 +7,7 @@ import { focusEvidence, highlightQuery, cycleQueryMarks, queryMarkPos } from '..
 import { ensureCjkSerif } from '../fontsCjk';
 import { prefetchDoc } from '../prefetch';
 import { notify } from '../toast';
+import { liveTitle } from '../liveTitle';
 import { askUnlock } from '../unlock';
 import { bindSyncScroll } from '../syncScroll';
 import { emitLayout, readScroller } from '../readHost';
@@ -142,6 +143,17 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
       return { ...cur, src: next.src, alt: next.alt };
     });
   };
+  const swipeRef = useRef({ x: 0, y: 0 });
+  useEffect(() => {
+    if (!shot || shot.list.length < 2) return;
+    const i = Math.max(0, shot.list.findIndex(x => x.src === shot.src));
+    [shot.list[(i + 1) % shot.list.length], shot.list[(i - 1 + shot.list.length) % shot.list.length]]
+      .forEach(x => { const im = new Image(); im.src = x.src; });
+  }, [shot]);
+  useEffect(() => {
+    if (meta?.title) liveTitle(meta.title);
+    return () => liveTitle(null);
+  }, [meta?.title]);
   useFocusTrap(shotRef, !!shot, () => setShot(null));
   useEffect(() => { emitLayout(); }, [dual, path]);
   useEffect(() => {
@@ -545,18 +557,32 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
           role="dialog"
           aria-modal="true"
           aria-label={shot.alt || '放大图片'}
-          onMouseDown={() => setShot(null)}
+          onPointerDown={e => { swipeRef.current = { x: e.clientX, y: e.clientY }; }}
+          onPointerUp={e => {
+            const dx = e.clientX - swipeRef.current.x;
+            const dy = e.clientY - swipeRef.current.y;
+            if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy) * 1.2 && shot.list.length > 1) {
+              stepShot(dx < 0 ? 1 : -1);
+              return;
+            }
+            if (e.target === e.currentTarget && Math.hypot(dx, dy) < 8) setShot(null);
+          }}
         >
-          <button type="button" className="ar-shot-x" onMouseDown={e => e.stopPropagation()} onClick={() => setShot(null)}>关闭</button>
+          <button type="button" className="ar-shot-x" onClick={() => setShot(null)}>关闭</button>
           {shot.list.length > 1 && (
-            <button type="button" className="ar-shot-nav prev" onMouseDown={e => e.stopPropagation()} onClick={() => stepShot(-1)}>上一张</button>
+            <button type="button" className="ar-shot-nav prev" onClick={() => stepShot(-1)}>上一张</button>
           )}
-          <figure onMouseDown={e => e.stopPropagation()}>
+          <figure>
             <img src={shot.src} alt={shot.alt} />
             {shot.alt ? <figcaption>{shot.alt}</figcaption> : null}
           </figure>
           {shot.list.length > 1 && (
-            <button type="button" className="ar-shot-nav next" onMouseDown={e => e.stopPropagation()} onClick={() => stepShot(1)}>下一张</button>
+            <button type="button" className="ar-shot-nav next" onClick={() => stepShot(1)}>下一张</button>
+          )}
+          {shot.list.length > 1 && (
+            <p className="ar-shot-idx" aria-live="polite">
+              {Math.max(1, shot.list.findIndex(x => x.src === shot.src) + 1)} / {shot.list.length}
+            </p>
           )}
         </div>
       )}

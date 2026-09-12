@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ApiError, api, headingSlug, type Chapter, type ChapterDetail } from '../api';
 import { recordChapter } from '../history';
 import { emitSilk } from '../silk';
+import { liveTitle } from '../liveTitle';
 import { ensureCjkSerif } from '../fontsCjk';
 
 /**
@@ -51,6 +52,7 @@ export function ChapterPanel({ code, seq, onClose, onOpenDoc, onOpenImagery, onO
   const [volMeta, setVolMeta] = useState<{ name: string; color: string } | null>(null);
   const seqRef = useRef(0);
   useEffect(() => { ensureCjkSerif(); }, []);
+  useEffect(() => () => liveTitle(null), []);
 
   useEffect(() => {
     const my = ++seqRef.current;
@@ -59,7 +61,7 @@ export function ChapterPanel({ code, seq, onClose, onOpenDoc, onOpenImagery, onO
       if (my !== seqRef.current) return; // 过期响应丢弃
       if (d) {
         setSt({ s: 'ok', d });
-        document.title = `${d.chapter.title} · ΜΝΗΜΗ`;
+        liveTitle(d.chapter.title);
         recordChapter({ code: d.chapter.code, seq: d.chapter.seq, title: d.chapter.title, volume: d.volume.name });
         emitSilk();
       } else setSt({ s: 'miss' });

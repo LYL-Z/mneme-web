@@ -47,6 +47,7 @@ const ROWS: { keys: string; name: string }[] = [
   { keys: '← / →', name: '放大图上一张 / 下一张' },
   { keys: 'n / N', name: '下一处 / 上一处检索标' },
   { keys: 'c', name: '复制深链（有选区则带摘句）' },
+  { keys: '链', name: '顶栏：手机系统分享，桌面复制深链' },
   { keys: 't / i / d / a', name: '原文：目录 / 检查器 / 对照 / Aa' },
 ];
 
