@@ -59,6 +59,7 @@ export function DailySky({ theme, onOpenPerson, onOpenChapter }: {
   const [hover, setHover] = useState<{ name: string; x: number; y: number } | null>(null);
   const [hint, setHint] = useState<PublicChapterHint | null>(null);
   const [gen, setGen] = useState(0);
+  const [skyStat, setSkyStat] = useState<'load' | 'ok' | 'empty' | 'err'>('load');
   const skyRef = useRef<{ nodes: SkyNode[]; edges: SkyEdge[] }>({ nodes: [], edges: [] });
 
   useEffect(() => {
@@ -76,8 +77,14 @@ export function DailySky({ theme, onOpenPerson, onOpenChapter }: {
 
   useEffect(() => {
     let disposed = false;
+    setSkyStat('load');
     loadGraph().then(g => {
-      if (disposed || g.nodes.length === 0) return;
+      if (disposed) return;
+      if (g.nodes.length === 0) {
+        skyRef.current = { nodes: [], edges: [] };
+        setSkyStat('empty');
+        return;
+      }
       const dateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       const rnd = mulberry32(hashStr('mneme-sky:' + dateKey));
       // 确定性抽样：种子洗牌 → 当日星群 24 颗（前 90 高提及中取，保证星座有故事）
@@ -106,7 +113,13 @@ export function DailySky({ theme, onOpenPerson, onOpenChapter }: {
         .filter(e => ids.has(e.s) && ids.has(e.t))
         .map(e => ({ a: e.s, b: e.t, w: e.w }));
       skyRef.current = { nodes, edges };
-    }).catch(e => notify(apiErrorMessage(e), 'error'));
+      setSkyStat('ok');
+    }).catch(e => {
+      if (disposed) return;
+      skyRef.current = { nodes: [], edges: [] };
+      setSkyStat('err');
+      notify(apiErrorMessage(e), 'error');
+    });
     return () => { disposed = true; };
   }, [today, gen]);
 
@@ -237,6 +250,18 @@ export function DailySky({ theme, onOpenPerson, onOpenChapter }: {
         onClick={click}
         style={{ cursor: hover ? 'pointer' : 'default' }}
       />
+      {skyStat !== 'ok' && (
+        <div className="ds-empty" role="status">
+          {skyStat === 'load' && <p>正在展开今日星座…</p>}
+          {skyStat === 'empty' && <p>今日星群还没有可画的星。</p>}
+          {skyStat === 'err' && (
+            <>
+              <p>星座没能取回——档案服务暂时连不上。</p>
+              <button type="button" className="ds-retry" onClick={() => { clearDailySkyCache(); setGen(n => n + 1); }}>再取一次</button>
+            </>
+          )}
+        </div>
+      )}
       {hover && (
         <div className="ds-tip glass" style={{ left: hover.x + 12, top: hover.y - 30 }}>
           {hover.name}

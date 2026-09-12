@@ -169,6 +169,11 @@ export function DocPane({ path, anchor, evidenceId, query, compact, track, onNav
       img.setAttribute('decoding', 'async');
       if (!img.hasAttribute('loading')) img.setAttribute('loading', 'lazy');
       img.classList.add('ar-img-open');
+      if (!img.complete) {
+        img.classList.add('ar-img-wait');
+        img.addEventListener('load', () => img.classList.remove('ar-img-wait'), { once: true });
+        img.addEventListener('error', () => img.classList.remove('ar-img-wait'), { once: true });
+      }
       img.addEventListener('click', ev => {
         ev.preventDefault();
         ev.stopPropagation();

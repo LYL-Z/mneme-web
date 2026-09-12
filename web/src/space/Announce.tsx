@@ -2,11 +2,11 @@ import { useEffect, useRef } from 'react';
 import { animate, stagger } from 'animejs';
 import { annihilate, prepareSnapshot } from '../annihilate';
 import { canAnnihilate } from '../immersive';
+import { tryPlayBgm } from '../bgm';
 
 /**
- * v4 · 致谢公告（口令通过后、进首页前弹一次，sessionStorage 记忆）。
- * 液态玻璃 + 沉浸光感：顶部致谢一句话，下方十家支持企业的 logo 墙（白底小卡承载）。
- * 关闭后本会话不再弹出（mneme-anno）。
+ * 致谢公告：口令通过后、进首页前弹一次（sessionStorage mneme-anno）。
+ * 关闭这一下是用户手势——默认在此时打开背景曲。
  */
 const SPONSORS = [
   ['openai', 'OpenAI'], ['huawei', 'Huawei'], ['claude', 'Claude'], ['apple', 'Apple'], ['github', 'GitHub'],
@@ -44,7 +44,7 @@ export function Announce({ onClose }: { onClose: () => void }) {
   const close = () => {
     if (closing.current) return;
     closing.current = true;
-    try { sessionStorage.setItem('mneme-anno', '1'); } catch { /* 静默 */ }
+    tryPlayBgm();
     const card = rootRef.current?.querySelector('.anno-card') as HTMLElement | null;
     if (card && canAnnihilate()) annihilate(card, onClose);
     else onClose();

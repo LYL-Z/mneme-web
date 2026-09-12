@@ -257,7 +257,7 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
                 <input type="checkbox" checked={prefs.contrast} onChange={() => set('contrast')} />
               </label>
               <label className="pref-row">
-                <span>背景音乐<small>循环播放站点背景曲 · 音量在右下角控件调节</small></span>
+                <span>背景音乐<small>默认开 · 关掉致谢公告后才出声 · 音量在右下角调</small></span>
                 <input type="checkbox" checked={bgm.on} onChange={() => bgmSet({ on: !bgm.on })} />
               </label>
               <label className="pref-row">

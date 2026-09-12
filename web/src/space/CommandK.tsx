@@ -405,8 +405,8 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
               })}
             </>
           )}
-          {q.trim() && groups === null && <p className="ck-empty" aria-busy="true">检索中…</p>}
-          {q.trim() && flat.length === 0 && groups && <p className="ck-empty">无所检出。</p>}
+          {q.trim() && groups === null && <p className="ck-empty" aria-busy="true" aria-live="polite">翻检纸页…</p>}
+          {q.trim() && flat.length === 0 && groups && <p className="ck-empty" aria-live="polite">无所检出。</p>}
           {q.trim() && groups?.doc?.length ? <Group name="文档" greek="ΓΡΑΦΗ" /> : null}
           {q.trim() && groups?.doc?.slice(0, 6).map(d => {
             idx += 1;

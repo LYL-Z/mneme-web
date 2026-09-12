@@ -81,11 +81,16 @@ export function Gate({ onDone }: { onDone: () => void }) {
 
   if (lite) return null;
 
+  const skip = () => {
+    if (rootRef.current) rootRef.current.style.opacity = '0';
+    setTimeout(onDone, 100);
+  };
+
   return (
     <div
       className="gate" ref={rootRef} role="button" tabIndex={0}
-      onClick={() => { if (rootRef.current) rootRef.current.style.opacity = '0'; setTimeout(onDone, 100); }}
-      onKeyDown={e => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') { if (rootRef.current) rootRef.current.style.opacity = '0'; setTimeout(onDone, 100); } }}
+      onClick={skip}
+      onKeyDown={e => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') skip(); }}
       title="点击任意处 / Esc 跳过序章"
     >
       <div className="gate-center gate-book">
@@ -103,7 +108,7 @@ export function Gate({ onDone }: { onDone: () => void }) {
       {Array.from({ length: SPARKS }, (_, i) => (
         <span key={i} className="spark" aria-hidden style={{ opacity: 0.9 }} />
       ))}
-      {skipOn && <button className="gate-skip" onClick={e => { e.stopPropagation(); if (rootRef.current) rootRef.current.style.opacity = '0'; setTimeout(onDone, 120); }}>跳过序章 →</button>}
+      {skipOn && <button className="gate-skip" onClick={e => { e.stopPropagation(); skip(); }}>跳过序章 →</button>}
     </div>
   );
 }

@@ -82,7 +82,6 @@
   min-width: 0; max-width: 42%;
   display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
   padding: 4px 10px; border-radius: 10px;
-  border: 1px solid var(--glass-border); background: var(--surface-read);
   color: var(--ink); font: inherit; cursor: pointer; text-align: left;
 }
 .silk-resume .silk-k { font-size: var(--fs-2xs); color: var(--bronze); letter-spacing: 0.14em; }
@@ -111,6 +110,9 @@
   padding: 3px 8px; border-radius: 999px; cursor: pointer;
 }
 .silk-chip.dim { color: var(--ink-faint); }
+@media (hover: hover) and (pointer: fine) {
+  .silk-chip:hover { border-color: var(--bronze); color: var(--ink); }
+}
 .ax-banner {
   margin: 0; padding: 6px 16px;
   font-size: var(--fs-s); letter-spacing: 0.28em;
@@ -154,7 +156,6 @@ html.page-hidden .glass::after {
   flex: 0 1 280px; max-width: 280px; height: 34px;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 0 12px 0 14px; border-radius: 999px;
-  border: 1px solid var(--glass-border); background: var(--surface-read);
   color: var(--ink-faint); font: inherit; font-size: var(--fs-s); cursor: pointer;
 }
 .top-search:hover { border-color: var(--bronze); color: var(--ink-soft); }
@@ -194,7 +195,8 @@ html.page-hidden .glass::after {
 .read-bar.on { display: block; }
 .read-bar span {
   display: block; height: 100%; width: 100%; transform: scaleX(0); transform-origin: left center;
-  background: color-mix(in srgb, var(--bronze) 72%, var(--aegean));
+  background: linear-gradient(90deg, var(--bronze), color-mix(in srgb, var(--bronze) 40%, var(--aegean)));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--bronze) 40%, transparent);
   transition: transform 80ms linear;
 }
 
@@ -204,6 +206,7 @@ html.page-hidden .glass::after {
   min-height: 0;
   padding-top: 0;
   overflow-y: auto; overflow-x: hidden;
+  scroll-padding-top: 28px;
 }
 
 /* 旧横向导航类名保留给移动底栏复用 */
@@ -320,7 +323,7 @@ html.page-hidden .glass::after {
 .st { max-width: 1080px; margin: 0 auto; padding: 24px 32px 80px; display: flex; flex-direction: column; align-items: center; gap: 34px; }
 .st-hero { text-align: center; min-height: min(700px, 64vw); display: flex; flex-direction: column; justify-content: center; }
 .st-kicker { font-size: var(--fs-r); color: var(--bronze); margin: 0 0 10px; }
-.st-title { margin: 0; font-size: clamp(34px, 5vw, 52px); font-weight: 600; letter-spacing: 0.14em; }
+.st-title { margin: 0; font-size: clamp(34px, 5vw, 52px); font-weight: 600; letter-spacing: 0.06em; }
 .st-quote { margin: 16px 0 0; color: var(--ink-faint); font-size: var(--fs-m); line-height: 2; }
 
 .st-orbitry { position: relative; width: 320px; height: 320px; }
@@ -362,7 +365,7 @@ html.page-hidden .glass::after {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   padding: 16px 22px; min-width: 108px; border-radius: var(--r-md);
 }
-.stat b { font-size: 25px; color: var(--aegean); font-weight: 700; text-shadow: 0 1px 0 color-mix(in srgb, #fff 30%, transparent); }
+.stat b { font-size: 25px; color: var(--aegean); font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 1px 0 color-mix(in srgb, #fff 30%, transparent); }
 [data-theme="night"] .stat b { text-shadow: 0 0 14px color-mix(in srgb, var(--aegean) 35%, transparent); }
 .stat span { font-size: var(--fs-s); color: var(--ink-faint); letter-spacing: 0.08em; }
 
@@ -390,15 +393,17 @@ html.page-hidden .glass::after {
 .monument { width: 100%; display: flex; flex-direction: column; gap: 18px; }
 .monument-head { text-align: center; }
 .monument-kicker { font-size: var(--fs-s); color: var(--bronze); margin: 0 0 8px; }
-.monument-head h2 { margin: 0; font-size: clamp(22px, 3vw, 30px); font-weight: 600; letter-spacing: 0.1em; }
+.monument-head h2 { margin: 0; font-size: clamp(22px, 3vw, 30px); font-weight: 600; letter-spacing: 0.04em; }
 .monument-sub { margin: 10px auto 0; max-width: 640px; font-size: var(--fs-r); line-height: 2; color: var(--ink-faint); }
 .monument-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
 .monument-item {
   display: flex; flex-direction: column; gap: 3px; padding: 18px 16px 14px;
-  border-radius: var(--r-md); transition: transform var(--dur-2) var(--spring);
+  border-radius: var(--r-md); transition: background var(--dur-2) var(--ease-out);
 }
-.monument-item:hover { transform: translateY(-3px); }
-.monument-item b { font-size: 23px; color: var(--aegean); font-weight: 600; letter-spacing: -0.01em; }
+@media (hover: hover) and (pointer: fine) {
+  .monument-item:hover { background: color-mix(in srgb, var(--bronze) 7%, var(--surface-read)); }
+}
+.monument-item b { font-size: 23px; color: var(--aegean); font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 .monument-item b i { font-style: normal; font-size: var(--fs-s); color: var(--bronze); margin-left: 4px; }
 .monument-item span { font-size: var(--fs-s); color: var(--ink); letter-spacing: 0.04em; }
 .monument-item em { font-style: normal; font-size: var(--fs-xs); color: var(--ink-faint); }
@@ -426,7 +431,7 @@ html.page-hidden .glass::after {
 .rv { height: 100%; display: flex; flex-direction: column; outline: none; }
 .rv-head { padding: 10px 40px 6px; }
 .rv-kicker { font-size: var(--fs-s); color: var(--bronze); margin: 0 0 6px; }
-.rv-head :is(h1, h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.16em; font-weight: 600; }
+.rv-head :is(h1, h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.06em; font-weight: 600; }
 .rv-hint { margin: 8px 0 0; font-size: var(--fs-s); color: var(--ink-faint); }
 .rv-filters { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; max-width: 100%; }
 .rv-chips, .rv-jump {
@@ -775,7 +780,7 @@ html.page-hidden .glass::after {
 .ar-read-cost { color: var(--ink-faint); letter-spacing: 0.04em; }
 .ar-miss-acts { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; align-items: flex-start; }
 .ar-sheet-mask { display: none; }
-.ar-head :is(h1, h2) { margin: 0; font-size: var(--fs-display); font-weight: 600; letter-spacing: 0.05em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-head :is(h1, h2) { margin: 0; font-size: var(--fs-display); font-weight: 600; letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ar-toolbar { position: relative; display: flex; align-items: center; gap: 5px; flex: none; }
 .ar-tool {
   padding: 6px 13px; border: 1px solid var(--glass-border); border-radius: 999px;
@@ -858,7 +863,7 @@ html.page-hidden .glass::after {
 
 .ar-body {
   padding: 44px 50px 60px; border-radius: var(--r-lg);
-  font-size: var(--r-fs, 17px); line-height: 1.95; color: var(--ink);
+  font-size: var(--r-fs, 17px); line-height: 2.05; color: var(--ink);
   font-family: var(--r-ff, var(--serif));
   max-width: var(--r-mw, 44em); margin-inline: auto; width: 100%;
   overflow-wrap: break-word;
@@ -866,15 +871,18 @@ html.page-hidden .glass::after {
   background: var(--surface-read);
   border: 1px solid var(--glass-border);
   box-shadow: 0 1px 2px rgba(29, 26, 22, 0.04);
+  hanging-punctuation: first last;
   transition: font-size var(--dur-2) var(--ease-out), max-width var(--dur-2) var(--ease-out);
 }
-.ar-body.compact { padding: 26px 30px 40px; }
+.ar-body.compact { padding: 26px 30px 40px; line-height: 1.9; }
 .ar-body :is(h1, h2, h3, h4), .anchor-flash {
   scroll-margin-top: calc(var(--top-h) + env(safe-area-inset-top, 0px) + 12px);
 }
-.ar-body h1, .ar-body h2, .ar-body h3 { letter-spacing: 0.04em; margin: 1.6em 0 0.6em; line-height: 1.4; }
+.ar-body h1, .ar-body h2, .ar-body h3 { letter-spacing: 0.02em; margin: 1.6em 0 0.6em; line-height: 1.4; }
 .ar-body h1 { font-size: var(--fs-h2); } .ar-body h2 { font-size: var(--fs-h3); } .ar-body h3 { font-size: var(--fs-l); }
-.ar-body p { margin: 0.8em 0; }
+.ar-body > p { text-indent: 2em; margin: 0.28em 0; orphans: 3; widows: 3; }
+.ar-body > p:has(> img), .ar-body > p:has(> .ar-img-open) { text-indent: 0; }
+.ar-body.compact > p { text-indent: 0; margin: 0.65em 0; }
 .ar-body blockquote {
   margin: 1.1em 0; padding: 12px 18px; border-left: 3px solid var(--bronze);
   background: color-mix(in srgb, var(--bronze) 7%, transparent); border-radius: 0 var(--r-sm) var(--r-sm) 0;
@@ -889,11 +897,16 @@ html.page-hidden .glass::after {
 .ar-body table { border-collapse: collapse; margin: 1em 0; width: 100%; font-size: var(--fs-r); display: block; overflow-x: auto; }
 .ar-body img { max-width: 100%; height: auto; }
 .ar-body img.ar-img-open {
+  display: block; margin: 1.2em auto;
   aspect-ratio: 3 / 2;
   object-fit: contain;
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  background: color-mix(in srgb, var(--paper-deep) 88%, var(--ink));
   cursor: zoom-in;
+  border-radius: 3px;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ink) 8%, transparent);
+  transition: opacity var(--dur-3) var(--ease-out);
 }
+.ar-body img.ar-img-wait { opacity: 0; }
 button.ar-pname {
   display: inline; padding: 0; margin: 0; border: none; background: none;
   color: var(--aegean); cursor: pointer; font: inherit; letter-spacing: inherit;
@@ -913,10 +926,22 @@ button.ar-pname.locked { color: var(--ink-faint); border-bottom-style: dotted; }
 .ar-shot {
   position: fixed; inset: 0; z-index: 60;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(8, 7, 4, 0.72); cursor: zoom-out; padding: 24px;
+  background: color-mix(in srgb, #0c0a08 78%, transparent);
+  backdrop-filter: blur(22px) saturate(120%);
+  -webkit-backdrop-filter: blur(22px) saturate(120%);
+  cursor: zoom-out; padding: 24px;
+  animation: shotIn var(--dur-2) var(--ease-out);
 }
+html[data-imm="smooth"] .ar-shot { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(8, 7, 4, 0.82); }
+@keyframes shotIn { from { opacity: 0; } to { opacity: 1; } }
 .ar-shot figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: min(96vw, 1200px); }
-.ar-shot img { max-width: min(96vw, 1200px); max-height: 84vh; object-fit: contain; }
+.ar-shot img {
+  max-width: min(96vw, 1200px); max-height: 84vh; object-fit: contain;
+  border-radius: 2px;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.48);
+  animation: shotImg var(--dur-3) var(--ease-out);
+}
+@keyframes shotImg { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
 .ar-shot figcaption {
   max-width: 48rem; text-align: center; color: #EDE7DA;
   font-size: var(--fs-s); letter-spacing: 0.04em; line-height: 1.6;
@@ -941,6 +966,12 @@ button.ar-pname.locked { color: var(--ink-faint); border-bottom-style: dotted; }
 .ar-body th { background: color-mix(in srgb, var(--bronze) 8%, transparent); }
 .ar-body hr { border: none; border-top: 1px dashed var(--glass-border); margin: 1.6em 0; }
 .ar-body a { color: var(--aegean); }
+.ar-body a:not(.wl) {
+  text-underline-offset: 0.22em;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--aegean) 32%, transparent);
+}
+.ar-body a:not(.wl):hover { text-decoration-color: var(--bronze); }
 a.wl {
   color: var(--aegean); cursor: pointer; border-bottom: 1px dashed color-mix(in srgb, var(--aegean) 45%, transparent);
   overflow-wrap: anywhere; /* 长路径 wikilink（如「人物关系/刘佑林与…2026-08-13」）可在任意字符断行 */
@@ -1058,7 +1089,15 @@ a.wl:hover { color: var(--bronze); border-color: var(--bronze); }
 .ar-miss-greek { margin: 0 0 10px; font-size: var(--fs-r); color: var(--ink-faint); }
 .ar-miss :is(h2,h3) { margin: 0; font-size: var(--fs-h3); font-weight: 600; }
 .ar-miss-sub { margin: 12px 0 0; font-size: var(--fs-r); color: var(--ink-faint); line-height: 1.9; }
-.ar-loading { padding: 120px 0; text-align: center; color: var(--ink-faint); font-size: var(--fs-r); letter-spacing: 0.2em; }
+.ar-loading {
+  min-height: 48vh; display: grid; place-items: center; gap: 14px;
+  padding: 80px 0; color: var(--ink-faint); font-size: var(--fs-r); letter-spacing: 0.2em;
+}
+.ar-loading::before {
+  content: ''; width: 56px; height: 1px; background: var(--bronze);
+  animation: space-line 1.4s var(--ease-out) infinite;
+}
+html.no-motion .ar-loading::before { animation: none; opacity: 0.7; }
 
 /* ============ ⌘K 检索 ============ */
 .ck-hint {
@@ -1108,7 +1147,8 @@ a.wl:hover { color: var(--bronze); border-color: var(--bronze); }
 .ck-item span { font-size: var(--fs-xs); color: var(--ink-faint); white-space: nowrap; }
 .ck-item.on { background: color-mix(in srgb, var(--bronze) 14%, transparent); }
 .ck-item.dim b { color: var(--ink-soft); }
-.ck-empty { padding: 26px 12px; text-align: center; font-size: var(--fs-r); color: var(--ink-faint); }
+.ck-empty { padding: 36px 16px 28px; text-align: center; font-size: var(--fs-r); color: var(--ink-faint); letter-spacing: 0.08em; }
+.ck-empty[aria-busy="true"] { color: var(--bronze); }
 .ck-foot {
   display: flex; gap: 18px; padding: 10px 20px; border-top: 1px solid var(--glass-border);
   font-size: var(--fs-xs); color: var(--ink-faint);
@@ -1231,7 +1271,7 @@ a.wl:hover { color: var(--bronze); border-color: var(--bronze); }
 .study { max-width: 1240px; margin: 0 auto; padding: 10px 32px 90px; }
 .study-head { padding: 6px 4px 22px; }
 .study-kicker { font-size: var(--fs-s); color: var(--bronze); margin: 0 0 6px; }
-.study-head :is(h1, h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.16em; font-weight: 600; }
+.study-head :is(h1, h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.06em; font-weight: 600; }
 .study-sub { margin: 8px 0 0; font-size: var(--fs-r); color: var(--ink-faint); max-width: 42em; line-height: 1.8; }
 .study-doors { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 @media (max-width: 1100px) { .study-doors { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -1550,7 +1590,7 @@ mark.hl-local.on {
 .mu { max-width: 1240px; margin: 0 auto; padding: 10px 32px 90px; }
 .mu-head { padding: 6px 4px 22px; }
 .mu-kicker { font-size: var(--fs-s); color: var(--bronze); margin: 0 0 6px; }
-.mu-head :is(h1,h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.16em; font-weight: 600; }
+.mu-head :is(h1,h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.06em; font-weight: 600; }
 .mu-sub { margin: 8px 0 0; font-size: var(--fs-r); color: var(--ink-faint); line-height: 1.9; }
 .mu-cases { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .mu-case {
@@ -1601,7 +1641,7 @@ mark.hl-local.on {
 .vo { max-width: 1240px; margin: 0 auto; padding: 10px 32px 90px; }
 .vo-head { padding: 6px 4px 22px; }
 .vo-kicker { font-size: var(--fs-s); color: var(--bronze); margin: 0 0 6px; }
-.vo-head :is(h1,h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.16em; font-weight: 600; }
+.vo-head :is(h1,h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.06em; font-weight: 600; }
 .vo-sub { margin: 8px 0 0; font-size: var(--fs-r); color: var(--ink-faint); }
 .vo-filter { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
 .vo-filter button {
@@ -1760,7 +1800,7 @@ mark.hl-local.on {
 .th { max-width: 1240px; margin: 0 auto; padding: 10px 32px 90px; }
 .th-head { padding: 6px 4px 22px; }
 .th-kicker { font-size: var(--fs-s); color: var(--bronze); margin: 0 0 6px; }
-.th-head :is(h1,h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.16em; font-weight: 600; }
+.th-head :is(h1,h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.06em; font-weight: 600; }
 .th-sub { margin: 8px 0 0; font-size: var(--fs-r); color: var(--ink-faint); }
 .th-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
 .rv-lrow, .th-card, .vo-card, .lh-q-item, .study-chapters li {
@@ -1850,7 +1890,7 @@ mark.hl-local.on {
 .lh { max-width: 1080px; margin: 0 auto; padding: 10px 32px 90px; display: flex; flex-direction: column; align-items: center; }
 .lh-head { text-align: center; padding: 6px 0 18px; }
 .lh-kicker { font-size: var(--fs-s); color: var(--bronze); margin: 0 0 6px; }
-.lh-head :is(h1,h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.16em; font-weight: 600; }
+.lh-head :is(h1,h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.06em; font-weight: 600; }
 .lh-sub { margin: 8px 0 0; font-size: var(--fs-r); color: var(--ink-faint); }
 .lh-tower { position: relative; display: flex; flex-direction: column; align-items: center; margin-bottom: 26px; }
 .lh-beam {
@@ -2107,6 +2147,19 @@ body { overscroll-behavior: none; }
 .ds-head :is(h2,h3) { margin: 0; font-size: var(--fs-h3); letter-spacing: 0.1em; font-weight: 600; }
 .ds-sub { margin: 6px 0 0; font-size: var(--fs-s); color: var(--ink-faint); line-height: 1.8; }
 .ds-canvas { display: block; width: 100%; height: 300px; }
+.ds-empty {
+  position: absolute; left: 26px; right: 26px; bottom: 14px; height: 300px;
+  display: grid; place-items: center; align-content: center; gap: 10px;
+  color: var(--ink-faint); font-size: var(--fs-s); letter-spacing: 0.06em; text-align: center;
+  pointer-events: none;
+}
+.ds-empty p { margin: 0; }
+.ds-retry {
+  pointer-events: auto; border: 1px solid var(--glass-border); border-radius: 999px;
+  background: transparent; color: var(--bronze); font: inherit; font-size: var(--fs-s);
+  letter-spacing: 0.08em; padding: 6px 14px; cursor: pointer;
+}
+.ds-retry:hover { border-color: var(--bronze); }
 .ds-tip {
   position: absolute; z-index: 5; padding: 5px 12px; border-radius: 999px;
   font-size: var(--fs-s); pointer-events: none; white-space: nowrap;
@@ -2413,19 +2466,23 @@ html.no-motion .imm-vanish { animation: none; opacity: 0; transition: opacity 0.
 /* 空间懒加载占位：原实现 <Suspense fallback={<div className="space-loading"/>}>
    引用了从未定义的类名，切换空间时会先闪一下空白。 */
 .space-loading {
-  min-height: 60vh; display: grid; place-items: center; gap: 14px;
+  min-height: 60vh; display: grid; place-items: center; gap: 16px;
 }
 .space-loading::before {
-  content: ''; width: 26px; height: 26px; border-radius: 50%;
-  border: 1.5px solid var(--glass-border); border-top-color: var(--bronze);
-  animation: space-spin 0.9s linear infinite;
+  content: ''; width: 56px; height: 1px;
+  background: var(--bronze);
+  transform-origin: center;
+  animation: space-line 1.4s var(--ease-out) infinite;
 }
 .space-loading::after {
-  content: '载入中'; grid-row: 2; font-size: var(--fs-s); letter-spacing: 0.28em;
+  content: '载入'; grid-row: 2; font-size: var(--fs-s); letter-spacing: 0.32em;
   color: var(--ink-faint); font-family: var(--greek);
 }
-@keyframes space-spin { to { transform: rotate(360deg); } }
-html.no-motion .space-loading::before { animation-duration: 2.4s; }
+@keyframes space-line {
+  0%, 100% { transform: scaleX(0.28); opacity: 0.35; }
+  50% { transform: scaleX(1); opacity: 1; }
+}
+html.no-motion .space-loading::before { animation: none; opacity: 0.7; }
 html.no-motion .orbit, html.no-motion .star-core { animation: none; }
 html.no-motion .orbit { transform: translate(-50%, -50%) rotate(var(--from, 0deg)); }
 html.no-motion .vol:hover, html.no-motion .study-door:hover { transform: none; }
@@ -2545,6 +2602,7 @@ html.no-motion .vol:hover, html.no-motion .study-door:hover { transform: none; }
 
 .ar-print-vol { display: none; }
 @media print {
+  @page { margin: 18mm 16mm; }
   .rail, .topbar, .read-bar, .rail-tabs, .toc-hint, .ck-hint, .g-pending, .silk,
   .ar-toolbar, .ar-toc, .ar-inspector, .ar-sheet-mask, .skip-link,
   .more-mask, .ck-mask, .toc-mask, .sg-mask, .pref-hint, .pref-mask, .pref, .bgm, .toast-stack,
@@ -2571,7 +2629,11 @@ html.no-motion .vol:hover, html.no-motion .study-door:hover { transform: none; }
     box-shadow: none;
     max-width: none;
     color: #000;
+    background: #fff;
+    border-color: #ccc;
   }
+  .ar-body > p { orphans: 3; widows: 3; }
+  .ar-shot, .ar-body img.ar-img-wait { animation: none; opacity: 1; }
   .co-tag { display: inline-block !important; }
   .ax-banner { display: block !important; letter-spacing: 0.28em; }
   html, body, #root { height: auto; overflow: visible; }

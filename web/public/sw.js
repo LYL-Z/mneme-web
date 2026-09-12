@@ -2,7 +2,7 @@
  * 缓存：带哈希 /assets + 带 X-Mneme-Cache: public 的公开正文。
  * 绝不缓存私密层、绝密正文、检索、队列、口令页。
  */
-const ASSET = 'mneme-assets-v2';
+const ASSET = 'mneme-assets-v3';
 const DOCS = 'mneme-docs-v1';
 const DOC_MAX = 48;
 

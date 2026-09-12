@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { api, apiErrorMessage, swrInvalidate, type Overview } from './api';
 import { notify } from './toast';
 import ErrorBoundary from './ErrorBoundary';
@@ -9,7 +9,7 @@ import { SecretGate } from './space/SecretGate';
 import { Wellness } from './space/Wellness';
 import { Announce } from './space/Announce';
 import { BGM } from './space/BGM';
-import { bgmGet, bgmSet, bgmSub } from './bgm';
+import { bgmGet, bgmSet, bgmSub, enterBgm, stopBgm } from './bgm';
 import { immLevel, immDisplacementScale, bindGradientBlur, bindPressRipple, bindSmartInk, watchFps } from './immersive';
 import { armSnapshot, dismissGlass } from './glassDismiss';
 import { Foreshadow } from './space/Foreshadow';
@@ -26,17 +26,18 @@ import { readScroller } from './readHost';
 import { prefetchSpace, prefetchWorkbench } from './prefetch';
 import { isModifiedClick } from './navClick';
 import { copyPermalink } from './cite';
+import { lazySpace } from './lazySpace';
 
 /* v4 · B1 路由代码分割：d3-force（Graph）与重型空间按需加载，首屏只载 记忆恒星+导航 */
-const River = lazy(() => import('./space/River').then(m => ({ default: m.River })));
-const Graph = lazy(() => import('./space/Graph').then(m => ({ default: m.Graph })));
-const Archive = lazy(() => import('./space/Archive').then(m => ({ default: m.Archive })));
-const Study = lazy(() => import('./space/Study').then(m => ({ default: m.Study })));
-const ChapterPanel = lazy(() => import('./space/ChapterPanel').then(m => ({ default: m.ChapterPanel })));
-const Museum = lazy(() => import('./space/Museum').then(m => ({ default: m.Museum })));
-const Voices = lazy(() => import('./space/Voices').then(m => ({ default: m.Voices })));
-const Themes = lazy(() => import('./space/Themes').then(m => ({ default: m.Themes })));
-const Lighthouse = lazy(() => import('./space/Lighthouse').then(m => ({ default: m.Lighthouse })));
+const River = lazySpace(() => import('./space/River').then(m => ({ default: m.River })));
+const Graph = lazySpace(() => import('./space/Graph').then(m => ({ default: m.Graph })));
+const Archive = lazySpace(() => import('./space/Archive').then(m => ({ default: m.Archive })));
+const Study = lazySpace(() => import('./space/Study').then(m => ({ default: m.Study })));
+const ChapterPanel = lazySpace(() => import('./space/ChapterPanel').then(m => ({ default: m.ChapterPanel })));
+const Museum = lazySpace(() => import('./space/Museum').then(m => ({ default: m.Museum })));
+const Voices = lazySpace(() => import('./space/Voices').then(m => ({ default: m.Voices })));
+const Themes = lazySpace(() => import('./space/Themes').then(m => ({ default: m.Themes })));
+const Lighthouse = lazySpace(() => import('./space/Lighthouse').then(m => ({ default: m.Lighthouse })));
 const Lazy = ({ children }: { children: React.ReactNode }) => (
   <Suspense fallback={<div className="space-loading" aria-label="加载中" />}>{children}</Suspense>
 );
@@ -132,8 +133,13 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
-    if (gateDone) prefetchWorkbench();
+    if (!gateDone) return;
+    prefetchWorkbench();
+    enterBgm();
   }, [gateDone]);
+  useEffect(() => {
+    if (annoOpen) stopBgm();
+  }, [annoOpen]);
   useEffect(() => {
     const onGate = (e: Event) => setSecretOpen(!!(e as CustomEvent<boolean>).detail);
     const onSearch = () => { setCkOpen(true); setHelpOpen(false); };
@@ -431,7 +437,7 @@ export default function App() {
   const enter = () => {
     sessionStorage.setItem('mneme-gate', '1');
     setGateDone(true);
-    if (!sessionStorage.getItem('mneme-anno')) setAnnoOpen(true); // v4 · 致谢公告：每次会话首次进入弹一次
+    if (!sessionStorage.getItem('mneme-anno')) setAnnoOpen(true);
   };
 
   /* ---------- 导航：pushState；筛选类改写用 replace，避免把每次点选都推进历史 ---------- */
@@ -634,6 +640,7 @@ export default function App() {
         </filter>
       </svg>
 
+      <BGM visible={gateDone && !annoOpen} />
       {!gateDone && <Gate onDone={enter} />}
 
       {gateDone && (
@@ -707,7 +714,7 @@ export default function App() {
               onOpenPerson={openPerson}
               onOpenImagery={openImagery}
             />
-            <button className="top-search" onClick={() => setCkOpen(true)} aria-label="检索全库">
+            <button className="top-search glass chrome" onClick={() => setCkOpen(true)} aria-label="检索全库">
               <span>检索全库</span>
               <kbd>{ckHint}</kbd>
             </button>
@@ -946,7 +953,6 @@ export default function App() {
 
           <SecretGate />
           <Wellness onGoSpace={k => openSpace(k as SpaceKey)} />
-          <BGM />
 
           {tocOpen && (
             <div className="toc-mask" onMouseDown={() => closeToc()}>

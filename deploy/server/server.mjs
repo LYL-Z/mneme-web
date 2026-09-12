@@ -219,7 +219,7 @@ background:#A9864A;color:#141210;font-size:15px;font-family:inherit}
 const GATE_JS = `document.getElementById('f').addEventListener('submit',async ev=>{ev.preventDefault();
 const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
 body:JSON.stringify({token:document.getElementById('t').value})});
-if(r.ok)location.reload();else if(r.status===429)document.getElementById('e').textContent='尝试过于频繁，请稍后再试。';else document.getElementById('e').textContent='口令不符，请再试一次。';});`;
+if(r.ok){try{sessionStorage.removeItem('mneme-gate');sessionStorage.removeItem('mneme-anno');sessionStorage.removeItem('mneme-bgm-entered')}catch(e){}location.reload()}else if(r.status===429)document.getElementById('e').textContent='尝试过于频繁，请稍后再试。';else document.getElementById('e').textContent='口令不符，请再试一次。';});`;
 app.get('/gate.js', (c) => c.body(GATE_JS, 200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache' }));
 
 app.use('*', async (c, next) => {
@@ -457,6 +457,8 @@ if (fs.existsSync(WEB_DIST)) {
   });
   app.use('*', serveStatic({ root: path.relative(process.cwd(), WEB_DIST) || '.', rewriteRequestPath: (p) => p }));
   app.get('*', (c) => {
+    /* 哈希分包找不到时必须 404，不能回 index.html，否则浏览器会把 HTML 当 JS 加载、整页空白 */
+    if (c.req.path.startsWith('/assets/')) return c.notFound();
     c.header('Cache-Control', 'no-store');
     return c.html(INDEX_HTML());
   });

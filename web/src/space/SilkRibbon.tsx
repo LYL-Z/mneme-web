@@ -80,7 +80,7 @@ export function SilkRibbon({
 
   return (
     <div className="silk" aria-label="续读丝带">
-      <button type="button" className="silk-resume" onClick={resume}>
+      <button type="button" className="silk-resume glass chrome" onClick={resume}>
         <span className="silk-k">丝带</span>
         <b>
           {silk.chapter

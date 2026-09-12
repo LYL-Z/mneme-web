@@ -7,6 +7,7 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { notify } from './toast';
+import { isStaleChunk, reloadOnce } from './lazySpace';
 
 interface Props {
   children: ReactNode;
@@ -30,6 +31,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo) {
     /* 留一份到控制台便于排查；同时给用户一个可见反馈 */
     console.error('[mneme] 渲染异常', error, info.componentStack);
+    if (isStaleChunk(error) && reloadOnce()) return;
     notify(`${this.props.label || '此空间'}加载失败，可重试`, 'error');
   }
 

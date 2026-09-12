@@ -36,7 +36,7 @@ function Monument({ stardust, docs }: { stardust: number | null; docs: number | 
       <div className="monument-grid">
         {MONUMENT.map(m => {
           const live = m.live === 'docs' ? docs : m.live === 'stardust' ? stardust : null;
-          const shown = live != null ? live.toLocaleString() : (m.n ?? '—');
+          const shown = live != null ? live.toLocaleString() : (m.live ? '…' : (m.n ?? '—'));
           return (
           <div key={m.label} className="monument-item surface">
             <b>{shown}<i>{m.u}</i></b>

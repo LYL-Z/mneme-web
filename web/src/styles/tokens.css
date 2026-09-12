@@ -130,9 +130,19 @@ body {
   color: var(--ink);
   background: var(--paper);
   -webkit-font-smoothing: antialiased;
+  font-kerning: normal;
+  font-optical-sizing: auto;
   overflow: hidden;
 }
-::selection { background: rgba(169, 134, 74, 0.35); }
+h1, h2, h3, .st-title, .anno-title { text-wrap: balance; }
+p, .st-quote, .monument-sub, .ar-body { text-wrap: pretty; }
+::selection { background: rgba(169, 134, 74, 0.35); color: var(--ink); }
+[data-theme="night"] ::selection { background: rgba(199, 164, 94, 0.40); color: #EDE6D6; }
+::target-text {
+  background: color-mix(in srgb, var(--bronze) 38%, transparent);
+  color: inherit;
+}
+input[type="range"] { accent-color: var(--bronze); }
 
 /* 纸纹基底：细网点 + 轻晕影（主题化：颜色走变量，切换时平滑过渡） */
 .paper-field {
@@ -173,6 +183,7 @@ body {
 
 button { font-family: inherit; }
 a { color: var(--aegean); text-decoration: none; }
+input, textarea { caret-color: var(--bronze); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

@@ -1,43 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
-import { bgmGet, bgmSet, bgmSub, type BgmState } from '../bgm';
+import { useEffect, useState } from 'react';
+import { annoClosed, bgmGet, bgmSet, bgmSub, retryBgm, type BgmState } from '../bgm';
 
-/**
- * v5.1 · 背景曲控件（右下角液态玻璃；与偏好面板共用 bgm store）
- *
- * 行为约定：
- *  - 默认关闭；偏好面板或右下角控件显式打开后才播；
- *  - 文件 404 / 解码失败立即停播，避免 4 秒一轮空转；
- *  - 只有用户显式点击暂停按钮才停（成功加载之后）。
- * 性能：preload=none 首屏零流量，首次播放时才加载。
- */
-export function BGM() {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const failedRef = useRef(false);
+/** 右下角背景曲控件。真正的 Audio 在 bgm.ts，这里只负责开关和音量。 */
+export function BGM({ visible = true }: { visible?: boolean }) {
   const [s, setS] = useState<BgmState>(bgmGet);
   const [open, setOpen] = useState(false);
 
   useEffect(() => bgmSub(setS), []);
 
-  /* 状态 → 音频（唯一控制点；失败只静默重试，绝不自动关闭） */
   useEffect(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    a.volume = s.vol;
-    if (!s.on) { a.pause(); return; }
-    a.play().catch(() => { /* 保持 on，交给守护重试 */ });
-  }, [s]);
-
-  /* 守护重试：只要 on=true 而音频未在播，交互/可见性/定时点补播（不打扰、不关闭） */
-  useEffect(() => {
-    if (!s.on) return;
+    if (!s.on || !annoClosed()) return;
     let last = 0;
     const kick = () => {
-      if (failedRef.current) return;
       const now = Date.now();
       if (now - last < 800) return;
       last = now;
-      const a = audioRef.current;
-      if (a && a.paused) a.play().catch(() => {});
+      retryBgm();
     };
     window.addEventListener('pointerdown', kick, { passive: true });
     window.addEventListener('keydown', kick, { passive: true });
@@ -52,26 +30,19 @@ export function BGM() {
   }, [s.on]);
 
   const toggle = () => {
-    if (s.on) { bgmSet({ on: false }); audioRef.current?.pause(); return; }
-    bgmSet({ on: true, vol: s.vol || 0.3 });
-    audioRef.current?.play().catch(() => { /* 保持 on，守护重试接管 */ });
+    if (s.on) bgmSet({ on: false });
+    else bgmSet({ on: true, vol: s.vol || 0.3 });
   };
 
-  const playing = s.on;
+  const playing = s.on && annoClosed();
 
   return (
     <div
-      className={`bgm glass ${playing ? 'on' : ''} ${open ? 'open' : ''}`}
+      className={`bgm glass chrome ${playing ? 'on' : ''} ${open ? 'open' : ''}`}
+      hidden={!visible}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
-      <audio
-        ref={audioRef}
-        src="/audio/bgm.mp3"
-        loop
-        preload="none"
-        onError={() => { failedRef.current = true; bgmSet({ on: false }); }}
-      />
       <button
         className="bgm-btn"
         onClick={toggle}
@@ -89,7 +60,7 @@ export function BGM() {
       <input
         className="bgm-vol"
         type="range" min={0} max={1} step={0.01} value={s.vol}
-        onChange={e => bgmSet({ vol: +e.target.value, on: true })}
+        onChange={e => bgmSet({ vol: +e.target.value })}
         aria-label="背景音乐音量"
         style={{ '--vol': `${Math.round(s.vol * 100)}%` } as React.CSSProperties}
       />
