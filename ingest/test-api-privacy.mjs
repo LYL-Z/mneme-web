@@ -290,6 +290,8 @@ async function main() {
     const v = await api('/api/volumes/B3');
     const chs = Array.isArray(v.body?.chapters) ? v.body.chapters : [];
     const lockedCh = chs.filter(c => c.locked);
+    const vols = await api('/api/volumes');
+    ok('GET /api/volumes 八扇门', vols.status === 200 && Array.isArray(vols.body) && vols.body.length === 8, `得到 ${vols.body?.length ?? '?'}`);
     ok('GET /api/volumes/B3 → 200（目录公开）', v.status === 200, `得到 ${v.status}`);
     ok('GET /api/volumes/B3 密章带 lock 标、标题仍在', v.status === 200 && lockedCh.length > 0 && lockedCh.every(c => c.title), `(${lockedCh.length} 题)`);
     const openCh = await api('/api/chapter/B1/1');

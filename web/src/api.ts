@@ -266,6 +266,7 @@ export const api = {
       throw new ApiError(r.status, 'unlock failed');
     }),
   secretStatus: () => j<{ unlocked: boolean }>('/api/secret/status').catch(() => ({ unlocked: false })),
+  lockSecret: () => fetch('/api/secret/lock', { method: 'POST' }).then(r => r.ok),
   timeline: (from?: number, to?: number) =>
     j<TimelineEvent[]>(`/api/timeline?from=${from ?? 2000}&to=${to ?? 2030}`),
   entities: (limit = 400) => j<Entity[]>(`/api/entities?limit=${limit}`),

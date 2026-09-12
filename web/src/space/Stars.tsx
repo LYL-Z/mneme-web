@@ -129,9 +129,10 @@ function Workbench({ overview, onOpenChapter, onOpenDoc, onEnterLighthouse }: {
   );
 }
 
-export function Stars({ overview, theme, onEnterRiver, onOpenChapter, onOpenDoc, onEnterLighthouse, onOpenPerson, onOpenVolume }: {
+export function Stars({ overview, theme, book, onEnterRiver, onOpenChapter, onOpenDoc, onEnterLighthouse, onOpenPerson, onOpenVolume }: {
   overview: Overview | null;
   theme: 'paper' | 'night';
+  book?: string | null;
   onEnterRiver: () => void;
   onOpenChapter: (code: string, seq: number) => void;
   onOpenDoc: (path: string) => void;
@@ -181,7 +182,7 @@ export function Stars({ overview, theme, onEnterRiver, onOpenChapter, onOpenDoc,
         {[88, 128, 168, 208, 248, 288].map((d, i) => (
           <div
             key={d}
-            className={`orbit orbit-${i}`}
+            className={`orbit orbit-${i}${book === `B${i + 1}` ? ' on' : ''}`}
             style={{ width: d, height: d, ['--from' as string]: `${i * 51}deg` }}
           >
             <span className="orbit-star" style={{ background: ['var(--vol1)', 'var(--vol2)', 'var(--vol3)', 'var(--vol4)', 'var(--vol5)', 'var(--vol6)'][i] }} />
@@ -197,7 +198,7 @@ export function Stars({ overview, theme, onEnterRiver, onOpenChapter, onOpenDoc,
       />
 
       {/* v4 · C2 每日星座：今天的天空记住今天 */}
-      <DailySky theme={theme} onOpenPerson={onOpenPerson} />
+      <DailySky theme={theme} onOpenPerson={onOpenPerson} onOpenChapter={onOpenChapter} />
 
       <section className="st-stats st-atom">
         {stats.map(s => (

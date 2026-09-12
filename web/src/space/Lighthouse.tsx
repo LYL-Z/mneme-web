@@ -7,6 +7,7 @@ import { evidenceLabel as labelOf } from '../evidenceKind';
 import { rememberEvidence } from '../highlightSnippet';
 import { notify } from '../toast';
 import { askUnlock } from '../unlock';
+import { markCollectDone, pickTodayCollect } from '../silk';
 
 /**
  * Σ9 证据灯塔 · 事实纪律的守夜塔
@@ -62,6 +63,7 @@ export function Lighthouse({ overview, onOpenDoc, tab = 'all', onTab }: {
   }), [queue]);
 
   const shown = tab === 'all' ? queue : queue.filter(q => q.kind === tab);
+  const today = pickTodayCollect(queue);
 
   return (
     <div className="lh" ref={rootRef}>
@@ -112,6 +114,19 @@ export function Lighthouse({ overview, onOpenDoc, tab = 'all', onTab }: {
 
       <section className="lh-queue">
         <h2>待核工作队列 · {queue.length} 条</h2>
+        {today && (
+          <button
+            type="button"
+            className="lh-q-item surface lh-today"
+            onClick={() => {
+              markCollectDone(today.id);
+              onOpenDoc(today.path, undefined, today.id);
+            }}
+          >
+            <b>今日一张待采 · {today.title}</b>
+            <span>条数不是可信度。做完这条会从丝带消失。</span>
+          </button>
+        )}
         <div className="lh-q-tabs" role="tablist" aria-label="证据队列筛选">
           {TABS.map(t => (
             <button

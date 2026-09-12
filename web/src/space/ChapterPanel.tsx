@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, api, headingSlug, type Chapter, type ChapterDetail } from '../api';
 import { recordChapter } from '../history';
+import { emitSilk } from '../silk';
 import { ensureCjkSerif } from '../fontsCjk';
 
 /**
@@ -59,7 +60,8 @@ export function ChapterPanel({ code, seq, onClose, onOpenDoc, onOpenImagery, onO
       if (d) {
         setSt({ s: 'ok', d });
         document.title = `${d.chapter.title} · ΜΝΗΜΗ`;
-        recordChapter({ code: d.chapter.code, seq: d.chapter.seq, title: d.chapter.title, volume: d.volume.name }); // 工作台轨迹
+        recordChapter({ code: d.chapter.code, seq: d.chapter.seq, title: d.chapter.title, volume: d.volume.name });
+        emitSilk();
       } else setSt({ s: 'miss' });
     }).catch((e: unknown) => {
       if (my !== seqRef.current) return;

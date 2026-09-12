@@ -3,7 +3,8 @@ import { animate } from 'animejs';
 import { api, apiErrorMessage, type SearchGroups } from '../api';
 import { notify } from '../toast';
 import { useFocusTrap } from '../focusTrap';
-import { getHighlights, getRecentDocs, isPublicPath } from '../history';
+import { getHighlights, getRecentDocs, isPublicPath, resumeTarget, timeAgo } from '../history';
+import { readSilk, recordImagery, recordPerson } from '../silk';
 import { routeToPath, type SpaceKey } from '../route';
 import { isModifiedClick } from '../navClick';
 import { askUnlock } from '../unlock';
@@ -27,7 +28,8 @@ type Act =
   | { t: 'recent'; path: string; label: string }
   | { t: 'gate'; label: string }
   | { t: 'cmd'; id: string; label: string; hint: string }
-  | { t: 'hl'; path: string; heading: string; snippet: string; label: string };
+  | { t: 'hl'; path: string; heading: string; snippet: string; label: string }
+  | { t: 'silk'; label: string; hint: string };
 
 const CMDS: { id: string; label: string; hint: string }[] = [
   { id: 'archive', label: '去原文档案馆', hint: 'g a' },
@@ -185,6 +187,14 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
     ? getRecentDocs().filter(d => isPublicPath(d.path)).slice(0, 5)
     : [];
   const marks = !qn ? getHighlights().slice(0, 3) : [];
+  const silkAct = !qn ? (() => {
+    const s = readSilk();
+    const r = s.resume;
+    if (r?.kind === 'chapter' && s.chapter) return { t: 'silk' as const, label: s.chapter.title, hint: `${s.chapter.volume} · ${timeAgo(s.chapter.t)}` };
+    if (r?.kind === 'doc' && s.doc) return { t: 'silk' as const, label: s.doc.title, hint: `${s.doc.domain} · ${timeAgo(s.doc.t)}` };
+    return { t: 'silk' as const, label: '从序翻起', hint: '按昨天停的地方往下翻' };
+  })() : null;
+  if (silkAct) flat.push(silkAct);
   cmdHits.forEach(c => flat.push({ t: 'cmd', id: c.id, label: c.label, hint: c.hint }));
   if (!qn) {
     hist.forEach(h => flat.push({ t: 'hist', q: h, label: h }));
@@ -229,6 +239,14 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
   };
   const run = (a: Act) => {
     if (a.t === 'hist') { setQ(a.q); setCursor(0); inputRef.current?.focus(); return; } // 回填重检，面板不关
+    if (a.t === 'silk') {
+      close();
+      const r = resumeTarget();
+      if (!r) { onOpenChapter('P0', 1); return; }
+      if (r.kind === 'chapter') onOpenChapter(r.code, r.seq);
+      else onOpenDoc(r.path);
+      return;
+    }
     if (a.t === 'recent') { close(); onOpenDoc(a.path); return; }
     if (a.t === 'hl') { close(); onOpenDoc(a.path, a.heading || undefined, undefined, a.snippet.slice(0, 48)); return; }
     if (a.t === 'cmd') {
@@ -247,9 +265,9 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
     close();
     const hitQ = (q.trim() || (a.t === 'doc' ? a.sn : '')).slice(0, 48) || undefined;
     if (a.t === 'doc') onOpenDoc(a.path, undefined, undefined, hitQ);
-    else if (a.t === 'person') onOpenPerson(a.id);
+    else     if (a.t === 'person') { recordPerson({ id: a.id, name: a.label }); onOpenPerson(a.id); }
     else if (a.t === 'river') onOpenRiver(a.year, a.eventId);
-    else if (a.t === 'imagery') onOpenImagery(a.id);
+    else if (a.t === 'imagery') { recordImagery({ id: a.id, name: a.label.replace(/^意象·/, '') }); onOpenImagery(a.id); }
     else if (a.t === 'chapter') {
       if (a.seq != null) onOpenChapter(a.code, a.seq);      // 章节命中 → 直达材料链面板
       else if (a.docPath) onOpenDoc(a.docPath, undefined, undefined, hitQ);
@@ -297,6 +315,20 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
           aria-activedescendant={flat.length ? `ck-opt-${cursor}` : undefined}
         />
         <div className="ck-list" ref={listRef} id="ck-listbox" role="listbox" aria-label="检索结果">
+          {silkAct && (() => {
+            idx += 1;
+            const ix = idx;
+            return (
+              <>
+                <p className="ck-gname"><span className="greek">ΤΑΙΝΙΑ</span>丝带续读</p>
+                <button key="silk" id={`ck-opt-${ix}`} role="option" aria-selected={cursor === ix}
+                  className={`ck-item ${cursor === ix ? 'on' : ''}`}
+                  onMouseEnter={() => setCursor(ix)} onClick={() => run(silkAct)}>
+                  <b>{silkAct.label}</b><span>{silkAct.hint}</span>
+                </button>
+              </>
+            );
+          })()}
           {cmdHits.length > 0 && (
             <>
               <p className="ck-gname"><span className="greek">ΕΝΤΟΛΗ</span>命令</p>

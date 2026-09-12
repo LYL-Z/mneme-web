@@ -34,6 +34,27 @@ const applyPrefs = (p: MnemePrefs) => {
   el.classList.toggle('contrast-high', p.contrast);
 };
 
+/** 20 分钟可关微歇：不写进「当日一次」 */
+const useMicroRest = (onFire: () => void, enabled: boolean) => {
+  const ref = useRef({ active: 0, last: Date.now() });
+  const fire = useRef(onFire);
+  fire.current = onFire;
+  useEffect(() => {
+    if (!enabled) return;
+    const id = window.setInterval(() => {
+      const st = ref.current;
+      if (document.hidden) return;
+      if (Date.now() - st.last > 120_000) st.active = 0;
+      st.last = Date.now();
+      st.active += 1;
+      if (st.active < 20) return;
+      st.active = 0;
+      fire.current();
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [enabled]);
+};
+
 /** E3 · 连续活跃 45 分钟温和提示（当日一次） */
 const useReadingTimer = (onFire: () => void) => {
   const ref = useRef({ active: 0, last: Date.now() });
@@ -63,7 +84,15 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
   const [prefs, setPrefs] = useState<MnemePrefs>(readPrefs);
   const [panel, setPanel] = useState<'none' | 'prefs'>('none');
   const [rest, setRest] = useState(false);
+  const [micro, setMicro] = useState(false);
+  const [microOn, setMicroOn] = useState(() => {
+    try { return localStorage.getItem('mneme-micro-off') !== '1'; } catch { return true; }
+  });
+  const [paperLock, setPaperLock] = useState(() => {
+    try { return localStorage.getItem('mneme-paper-lock') === '1'; } catch { return false; }
+  });
   const bgmWas = useRef(false);
+  const microBgm = useRef(false);
   const [foot, setFoot] = useState(() => weekFootprint());
   const [vitals, setVitals] = useState(() => vitalStats());
   const [bgm, setBgm] = useState(bgmGet);
@@ -99,6 +128,22 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
     if (bgmWas.current) bgmSet({ on: false });
     setRest(true);
   });
+  useEffect(() => {
+    if (!microOn) return;
+    const st = { active: 0, last: Date.now() };
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      if (Date.now() - st.last > 120_000) st.active = 0;
+      st.last = Date.now();
+      st.active += 1;
+      if (st.active < 20) return;
+      st.active = 0;
+      microBgm.current = bgmGet().on;
+      if (microBgm.current) bgmSet({ on: false });
+      setMicro(true);
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [microOn]);
   const closeRest = (again: boolean) => {
     setRest(false);
     if (bgmWas.current) bgmSet({ on: true });
@@ -106,7 +151,6 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
       try { localStorage.removeItem('mneme-rest-hint'); } catch { /* */ }
     }
   };
-
   /* C5 · j/k 滚动（g / ? 由 App 统一处理） */
   useEffect(() => {
     const host = () => readScroller();
@@ -174,6 +218,28 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
                 <span>背景音乐<small>循环播放站点背景曲 · 音量在右下角控件调节</small></span>
                 <input type="checkbox" checked={bgm.on} onChange={() => bgmSet({ on: !bgm.on })} />
               </label>
+              <label className="pref-row">
+                <span>锁定纸色<small>夜色仍可跟系统；勾选后纸页保持纸色</small></span>
+                <input type="checkbox" checked={paperLock} onChange={() => {
+                  const next = !paperLock;
+                  setPaperLock(next);
+                  try { localStorage.setItem('mneme-paper-lock', next ? '1' : '0'); } catch { /* */ }
+                  if (next) {
+                    try { localStorage.setItem('mneme-theme-manual', '1'); localStorage.setItem('mneme-theme', 'paper'); } catch { /* */ }
+                    window.dispatchEvent(new CustomEvent('mneme:theme-paper'));
+                  } else {
+                    window.dispatchEvent(new CustomEvent('mneme:theme-system'));
+                  }
+                }} />
+              </label>
+              <label className="pref-row">
+                <span>二十分钟微歇<small>可关。不计入「当日一次」的四十五分钟提示</small></span>
+                <input type="checkbox" checked={microOn} onChange={() => {
+                  const next = !microOn;
+                  setMicroOn(next);
+                  try { localStorage.setItem('mneme-micro-off', next ? '0' : '1'); } catch { /* */ }
+                }} />
+              </label>
               <button type="button" className="pref-sys" onClick={() => window.dispatchEvent(new CustomEvent('mneme:theme-system'))}>
                 主题重新跟随系统
               </button>
@@ -220,6 +286,23 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
         </div>
       )}
 
+      {micro && (
+        <div className="rest-toast glass micro" role="status">
+          <p>已经读了 <b>20 分钟</b>。背景曲已先停。站起来一下也行。</p>
+          <span className="rest-actions">
+            <button type="button" className="ghost" onClick={() => {
+              setMicro(false);
+              if (microBgm.current) bgmSet({ on: true });
+            }}>继续</button>
+            <button type="button" onClick={() => {
+              setMicro(false);
+              setMicroOn(false);
+              try { localStorage.setItem('mneme-micro-off', '1'); } catch { /* */ }
+              if (microBgm.current) bgmSet({ on: true });
+            }}>关掉微歇</button>
+          </span>
+        </div>
+      )}
       {rest && (
         <div className="rest-toast glass" role="status">
           <p>已经连续阅读 <b>45 分钟</b>了。背景曲已先停。歇一会儿，纸还在。</p>

@@ -70,6 +70,7 @@ export function SecretGate() {
       if (ok) {
         swrInvalidate();
         clearDailySkyCache();
+        try { sessionStorage.setItem('mneme-unlock-day', new Date().toDateString()); } catch { /* */ }
         window.dispatchEvent(new CustomEvent('mneme:unlocked'));
         doClose();
       } else {

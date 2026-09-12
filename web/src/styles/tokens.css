@@ -104,10 +104,14 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; overflow-x: clip; }
+/* 空间切换：丝带做共享元素，整页不做淡入 */
+::view-transition-old(root),
+::view-transition-new(root) { animation: none; }
+::view-transition-group(silk) { z-index: 40; }
 @media (prefers-reduced-motion: reduce) {
-  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+  ::view-transition-old(silk),
+  ::view-transition-new(silk) { animation: none; }
 }
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: 180ms; }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
@@ -136,6 +140,7 @@ body {
   background:
     radial-gradient(1200px 800px at 20% 10%, var(--field-hi), transparent 60%),
     radial-gradient(1000px 700px at 85% 90%, var(--field-glow), transparent 55%),
+    radial-gradient(78% 42% at 48% 118%, var(--field-stem, transparent), transparent 72%),
     repeating-linear-gradient(0deg, transparent 0 3px, var(--field-line) 3px 4px),
     var(--paper);
   transition: background var(--dur-4) var(--ease-out);
@@ -218,3 +223,117 @@ html.contrast-high[data-theme="night"] {
 }
 /* E4 · 偏好开关的 JS 行为钩子：关玻璃光效时压平滤镜与跟随光 */
 html.no-glass { --glass-blur: none; --glass-follow: transparent; --glass-sweep: transparent; --glass-sweep-strong: transparent; }
+
+/* 一部一气：纸色、墨软、轨道高光、背景曲茎随部微偏。夜主题仍可读。 */
+html[data-book="P0"] {
+  --vc: var(--vol0);
+  --glass-follow: color-mix(in srgb, var(--vol0) 28%, transparent);
+  --field-glow: color-mix(in srgb, var(--vol0) 12%, transparent);
+  --field-stem: color-mix(in srgb, var(--vol0) 7%, transparent);
+}
+html[data-book="B1"] {
+  --vc: var(--vol1);
+  --paper: color-mix(in srgb, var(--vol1) 8%, #F5F0E6);
+  --paper-deep: color-mix(in srgb, var(--vol1) 10%, #EDE6D6);
+  --surface-read: color-mix(in srgb, var(--vol1) 6%, #FBF7EE);
+  --ink-soft: color-mix(in srgb, var(--vol1) 16%, #4A443A);
+  --glass-follow: color-mix(in srgb, var(--vol1) 30%, transparent);
+  --field-glow: color-mix(in srgb, var(--vol1) 14%, transparent);
+  --field-stem: color-mix(in srgb, var(--vol1) 8%, transparent);
+  --field-line: color-mix(in srgb, var(--vol1) 3%, rgba(29, 26, 22, 0.012));
+}
+html[data-book="B2"] {
+  --vc: var(--vol2);
+  --paper: color-mix(in srgb, var(--vol2) 8%, #F5F0E6);
+  --paper-deep: color-mix(in srgb, var(--vol2) 10%, #EDE6D6);
+  --surface-read: color-mix(in srgb, var(--vol2) 6%, #FBF7EE);
+  --ink-soft: color-mix(in srgb, var(--vol2) 16%, #4A443A);
+  --glass-follow: color-mix(in srgb, var(--vol2) 30%, transparent);
+  --field-glow: color-mix(in srgb, var(--vol2) 14%, transparent);
+  --field-stem: color-mix(in srgb, var(--vol2) 8%, transparent);
+  --field-line: color-mix(in srgb, var(--vol2) 3%, rgba(29, 26, 22, 0.012));
+}
+html[data-book="B3"] {
+  --vc: var(--vol3);
+  --paper: color-mix(in srgb, var(--vol3) 8%, #F5F0E6);
+  --paper-deep: color-mix(in srgb, var(--vol3) 10%, #EDE6D6);
+  --surface-read: color-mix(in srgb, var(--vol3) 6%, #FBF7EE);
+  --ink-soft: color-mix(in srgb, var(--vol3) 16%, #4A443A);
+  --glass-follow: color-mix(in srgb, var(--vol3) 30%, transparent);
+  --field-glow: color-mix(in srgb, var(--vol3) 14%, transparent);
+  --field-stem: color-mix(in srgb, var(--vol3) 8%, transparent);
+  --field-line: color-mix(in srgb, var(--vol3) 3%, rgba(29, 26, 22, 0.012));
+}
+html[data-book="B4"] {
+  --vc: var(--vol4);
+  --paper: color-mix(in srgb, var(--vol4) 8%, #F5F0E6);
+  --paper-deep: color-mix(in srgb, var(--vol4) 10%, #EDE6D6);
+  --surface-read: color-mix(in srgb, var(--vol4) 6%, #FBF7EE);
+  --ink-soft: color-mix(in srgb, var(--vol4) 16%, #4A443A);
+  --glass-follow: color-mix(in srgb, var(--vol4) 30%, transparent);
+  --field-glow: color-mix(in srgb, var(--vol4) 14%, transparent);
+  --field-stem: color-mix(in srgb, var(--vol4) 8%, transparent);
+  --field-line: color-mix(in srgb, var(--vol4) 3%, rgba(29, 26, 22, 0.012));
+}
+html[data-book="B5"] {
+  --vc: var(--vol5);
+  --paper: color-mix(in srgb, var(--vol5) 8%, #F5F0E6);
+  --paper-deep: color-mix(in srgb, var(--vol5) 10%, #EDE6D6);
+  --surface-read: color-mix(in srgb, var(--vol5) 6%, #FBF7EE);
+  --ink-soft: color-mix(in srgb, var(--vol5) 16%, #4A443A);
+  --glass-follow: color-mix(in srgb, var(--vol5) 30%, transparent);
+  --field-glow: color-mix(in srgb, var(--vol5) 14%, transparent);
+  --field-stem: color-mix(in srgb, var(--vol5) 8%, transparent);
+  --field-line: color-mix(in srgb, var(--vol5) 3%, rgba(29, 26, 22, 0.012));
+}
+html[data-book="B6"] {
+  --vc: var(--vol6);
+  --paper: color-mix(in srgb, var(--vol6) 8%, #F5F0E6);
+  --paper-deep: color-mix(in srgb, var(--vol6) 10%, #EDE6D6);
+  --surface-read: color-mix(in srgb, var(--vol6) 6%, #FBF7EE);
+  --ink-soft: color-mix(in srgb, var(--vol6) 16%, #4A443A);
+  --glass-follow: color-mix(in srgb, var(--vol6) 30%, transparent);
+  --field-glow: color-mix(in srgb, var(--vol6) 14%, transparent);
+  --field-stem: color-mix(in srgb, var(--vol6) 8%, transparent);
+  --field-line: color-mix(in srgb, var(--vol6) 3%, rgba(29, 26, 22, 0.012));
+}
+html[data-book="AX"] {
+  --vc: var(--vol-ax);
+  --paper: color-mix(in srgb, #7a8a96 12%, #F0F2F4);
+  --paper-deep: #E4E8EC;
+  --surface-read: #F4F6F8;
+  --ink-soft: #3d4550;
+  --glass-follow: color-mix(in srgb, var(--vol-ax) 26%, transparent);
+  --field-glow: color-mix(in srgb, #7a8a96 12%, transparent);
+  --field-stem: color-mix(in srgb, #7a8a96 8%, transparent);
+}
+html[data-book] .orbit.on {
+  border-color: color-mix(in srgb, var(--vc, var(--bronze)) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--vc, var(--bronze)) 28%, transparent);
+}
+html[data-book="AX"] .ar-body { line-height: 2.12; }
+html[data-theme="night"][data-book="P0"],
+html[data-theme="night"][data-book="B1"],
+html[data-theme="night"][data-book="B2"],
+html[data-theme="night"][data-book="B3"],
+html[data-theme="night"][data-book="B4"],
+html[data-theme="night"][data-book="B5"],
+html[data-theme="night"][data-book="B6"] {
+  --paper: #16140F;
+  --paper-deep: #1E1B15;
+  --surface-read: color-mix(in srgb, var(--vc, var(--bronze)) 8%, #201D16);
+  --ink-soft: color-mix(in srgb, var(--vc, var(--bronze)) 12%, #BFB49F);
+  --field-glow: color-mix(in srgb, var(--vc, var(--bronze)) 10%, transparent);
+  --field-stem: color-mix(in srgb, var(--vc, var(--bronze)) 7%, transparent);
+  --field-hi: rgba(255, 255, 255, 0.04);
+  --field-line: rgba(237, 230, 214, 0.016);
+}
+html[data-theme="night"][data-book="AX"] {
+  --paper: #12161A;
+  --paper-deep: #171C21;
+  --surface-read: #1A2026;
+  --ink: #E8EEF4;
+  --ink-soft: #C5D0DA;
+  --field-glow: color-mix(in srgb, #8aa0b0 10%, transparent);
+  --field-stem: color-mix(in srgb, #8aa0b0 7%, transparent);
+}

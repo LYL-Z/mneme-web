@@ -1,487 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import MarkdownIt from 'markdown-it';
-import { ApiError, api, apiErrorMessage, headingSlug, type DocFull } from '../api';
-import { addHighlight, getHighlights, getRecentDocs, isPublicPath, recordDoc, removeHighlight, setDocNeighbors } from '../history';
+import { type DocFull } from '../api';
+import { getHighlights, getRecentDocs, isPublicPath, setDocNeighbors } from '../history';
 import { evidenceLabel } from '../evidenceKind';
 import { stageAnchorYear } from '../stages';
-import { paintEvidenceSpans, focusEvidence, focusLocalHighlight, paintLocalHighlights, recalledEvidence, highlightQuery, clearQueryMarks, cycleQueryMarks, queryMarkPos } from '../highlightSnippet';
+import { focusEvidence, highlightQuery, cycleQueryMarks, queryMarkPos } from '../highlightSnippet';
 import { ensureCjkSerif } from '../fontsCjk';
 import { prefetchDoc } from '../prefetch';
-import { isModifiedClick } from '../navClick';
 import { notify } from '../toast';
 import { askUnlock } from '../unlock';
-import { copyPermalink } from '../cite';
 import { DeskWrite } from './DeskWrite';
 import { bindSyncScroll } from '../syncScroll';
 import { emitLayout, readScroller } from '../readHost';
 import { useFocusTrap } from '../focusTrap';
+import { bookFromVolume, recordImagery, recordPerson } from '../silk';
+import { DocPane, type DocHeading } from './archive/DocPane';
+import { READER_KEY, READER_MW, ReaderSettings, loadReader, remainLabel, type ReaderCfg } from './archive/reader';
+import { SecPicker } from './archive/SecPicker';
+import { FindBar } from './archive/FindBar';
+import { HighlightList, HighlightPop } from './archive/HighlightMarks';
 
 /**
- * Σ7 原文档案馆 · 阅读工作区（v4 · Phase A 跨越式升级）
- * 三栏架构：左目录（标题树+滚动侦听）· 中正文（可双栏对照）· 右来源检查器——均可收起。
- * - DocPane：单篇文档渲染单元（markdown-it + 消毒 + callout/Dataview 处理 + 锚点 + 段落复制）
- *   标题锚点去重改用 per-render env（修复：模块级 used Map 跨文档累积致锚点失配）
- * - 阅读器设置：字号/行宽/宋黑切换（localStorage mneme-reader）
- * - 双栏对照：次栏内置检索+最近文档选择器（写作核对场景：章节设计 ⇄ 原文）
- * - 403=绝密（弹 SecretGate），404=未收录/隔离，网络故障=独立错误态
+ * Σ7 原文档案馆 · 阅读工作区
+ * 外壳：目录 / 对照 / 写作台。查找、划线、渲染、对照各自成模块。
  */
-const md = new MarkdownIt({ html: true, linkify: false, breaks: true });
-
-const escHtml = (s: string) =>
-  s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
-
-/** [[目标|别名]] / [[目标]] → 真实内链（/doc/…，事件委托接管点击） */
-const renderWiki = (src: string) =>
-  src.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, t: string, l?: string) => {
-    const target = t.trim();
-    const label = (l || target).trim();
-    return `<a class="wl" href="/doc/${encodeURIComponent(target)}" data-wl="${escHtml(target)}" title="${escHtml(target)}">${escHtml(label)}</a>`;
-  });
-
-/** 工作区已有文题 h1。正文标题整体 +1，避免 h1 叠 h1、h1 后直接 h3。 */
-const bumpHeading = (tag: string) => {
-  const n = Number(tag.slice(1));
-  return Number.isFinite(n) && n >= 1 && n < 6 ? `h${n + 1}` : tag;
-};
-{
-  const open = md.renderer.rules.heading_open;
-  const close = md.renderer.rules.heading_close;
-  md.renderer.rules.heading_open = (tokens, idx, opts, env, self) => {
-    tokens[idx].tag = bumpHeading(tokens[idx].tag);
-    const text = tokens[idx + 1]?.type === 'inline' ? tokens[idx + 1].content : '';
-    const base = headingSlug(text);
-    const e = (env ?? {}) as { used?: Map<string, number> };
-    const used = (e.used ??= new Map<string, number>());
-    const n = used.get(base) ?? 0;
-    used.set(base, n + 1);
-    tokens[idx].attrSet('id', n === 0 ? base : `${base}-${n}`);
-    return open ? open(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
-  };
-  md.renderer.rules.heading_close = (tokens, idx, opts, env, self) => {
-    tokens[idx].tag = bumpHeading(tokens[idx].tag);
-    return close ? close(tokens, idx, opts, env, self) : self.renderToken(tokens, idx, opts);
-  };
-}
-
-/** 消毒：移除可执行节点与危险协议后再写入正文（必须真正调用，不能只定义） */
-const DANGEROUS_TAGS = 'script,style,iframe,object,embed,base,form,link,meta,svg,math,video,audio,textarea,input';
-function sanitizeInto(target: HTMLElement, html: string) {
-  const tpl = document.createElement('template');
-  tpl.innerHTML = html;
-  tpl.content.querySelectorAll(DANGEROUS_TAGS).forEach(n => n.remove());
-  tpl.content.querySelectorAll('*').forEach(el => {
-    for (const attr of [...el.attributes]) {
-      const name = attr.name.toLowerCase();
-      const value = attr.value.replace(/[\s]/g, '').toLowerCase();
-      if (name.startsWith('on') || name === 'srcdoc') el.removeAttribute(attr.name);
-      else if (name.startsWith('data-') && name !== 'data-wl') el.removeAttribute(attr.name);
-      else if ((name === 'href' || name === 'src' || name === 'xlink:href' || name === 'srcset')
-        && /^(javascript|vbscript|data:text\/html)/.test(value)) {
-        el.removeAttribute(attr.name);
-      }
-    }
-  });
-  target.replaceChildren(...tpl.content.childNodes);
-}
-
-type ReadState =
-  | { s: 'loading' }
-  | { s: 'ok'; doc: DocFull }
-  | { s: 'miss' }
-  | { s: 'net' }
-  | { s: 'lock' };
-
-export interface DocHeading { id: string; text: string; level: number; el: HTMLElement }
-
-/* ---------------- DocPane：单篇文档渲染单元 ---------------- */
-
-function DocPane({ path, anchor, evidenceId, query, compact, track, onNavigate, onOpenPerson, onHeadings, onDocMeta, onEvidenceFocus, onEvidenceLoci }: {
-  path: string;
-  anchor?: string;
-  evidenceId?: number;
-  query?: string;
-  compact?: boolean;
-  track?: boolean;
-  onNavigate: (path: string) => void;
-  onOpenPerson: (id: number) => void;
-  onHeadings?: (hs: DocHeading[]) => void;
-  onDocMeta?: (d: DocFull) => void;
-  onEvidenceFocus?: (id: number) => void;
-  onEvidenceLoci?: (m: Record<number, { heading: string; para: string }>) => void;
-}) {
-  const [state, setState] = useState<ReadState>({ s: 'loading' });
-  const [retry, setRetry] = useState(0);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const seqRef = useRef(0);
-  const cbRef = useRef({ onHeadings, onDocMeta, onEvidenceFocus, onEvidenceLoci });
-  cbRef.current = { onHeadings, onDocMeta, onEvidenceFocus, onEvidenceLoci };
-
-  useEffect(() => {
-    const seq = ++seqRef.current;
-    setState({ s: 'loading' });
-    api.doc(path).then(d => {
-      if (seq !== seqRef.current) return; // 过期响应丢弃
-      if (d) {
-        setState({ s: 'ok', doc: d });
-        if (track) recordDoc({ path: d.path, title: d.title, domain: d.domain });
-        cbRef.current.onDocMeta?.(d);
-      } else setState({ s: 'miss' });
-    }).catch((e: unknown) => {
-      if (seq !== seqRef.current) return;
-      if (e instanceof ApiError && e.status === 403) { setState({ s: 'lock' }); window.dispatchEvent(new CustomEvent('mneme:locked')); return; }
-      const net = e instanceof ApiError && (e.status === 0 || e.status >= 500);
-      setState(net ? { s: 'net' } : { s: 'miss' });
-    });
-  }, [path, retry, track]);
-
-  /* 绝密档案解锁后自动重试当前文档 */
-  useEffect(() => {
-    const onUnlocked = () => setRetry(n => n + 1);
-    window.addEventListener('mneme:unlocked', onUnlocked);
-    return () => window.removeEventListener('mneme:unlocked', onUnlocked);
-  }, []);
-
-  const html = useMemo(() => (state.s === 'ok' ? md.render(renderWiki(state.doc.body), { used: new Map() }) : ''), [state]);
-
-  /* 消毒写入 + callout / Dataview / 外链 / 标题复制 / 目录 */
-  useEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    if (state.s !== 'ok') { el.replaceChildren(); return; }
-    sanitizeInto(el, html);
-    el.querySelectorAll('blockquote').forEach(bq => {
-      const first = bq.firstElementChild;
-      const head = first?.textContent || '';
-      const m = head.match(/\[!(\w+)\]\s*(.*)/);
-      if (!m || !first) return;
-      bq.classList.add('callout', `co-${m[1].toLowerCase()}`);
-      const titleNode = first.firstChild;
-      if (titleNode && titleNode.nodeType === Node.TEXT_NODE) {
-        const text = titleNode.textContent || '';
-        const cut = text.replace(/^\s*\[!\w+\]\s*/, '');
-        if (cut) titleNode.textContent = cut; else first.removeChild(titleNode);
-      } else if (titleNode) {
-        first.removeChild(titleNode);
-      }
-      const br = first.querySelector('br');
-      const leading = first.firstChild;
-      if (leading && leading.nodeType === Node.TEXT_NODE && !(leading.textContent || '').trim()) leading.remove();
-      if (br && br === first.firstChild) br.remove();
-      const tag = document.createElement('b');
-      tag.className = 'co-tag';
-      tag.textContent = m[1].toUpperCase();
-      first.prepend(tag);
-    });
-    /* Dataview 动态查询：网页快照不执行任意脚本 → 降级为说明卡片 */
-    el.querySelectorAll('pre > code.language-dataview, pre > code.language-dataviewjs').forEach(code => {
-      const pre = code.parentElement!;
-      const note = document.createElement('div');
-      note.className = 'dv-note';
-      note.setAttribute('role', 'note');
-      const head = document.createElement('p');
-      head.className = 'dv-head';
-      head.textContent = 'Obsidian Dataview 动态查询';
-      const body = document.createElement('p');
-      body.className = 'dv-body';
-      body.textContent = '该查询的结果由知识库在 Obsidian 中实时生成。本站为只读快照，不执行查询——'
-        + '动态列表请回 Obsidian 查看；站内可用 ⌘K 检索全部公开文档。';
-      const src = document.createElement('details');
-      src.className = 'dv-src';
-      const sum = document.createElement('summary');
-      sum.textContent = '查看查询语句';
-      const code2 = document.createElement('code');
-      code2.textContent = code.textContent;
-      src.append(sum, code2);
-      note.append(head, body, src);
-      pre.replaceWith(note);
-    });
-    el.querySelectorAll('a[href^="http"]').forEach(a => {
-      a.setAttribute('target', '_blank');
-      a.setAttribute('rel', 'noreferrer noopener');
-    });
-    /* A6 · 段落锚点复制：标题 hover 显示 ¶，点击复制深链 */
-    const docPath = state.doc.path;
-    el.querySelectorAll('h2, h3, h4').forEach(h => {
-      const id = h.id;
-      if (!id) return;
-      const btn = document.createElement('button');
-      btn.className = 'h-copy';
-      btn.textContent = '¶';
-      btn.title = '复制此段链接';
-      btn.setAttribute('aria-label', '复制此段链接');
-      btn.addEventListener('click', ev => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        const url = `${location.origin}/doc/${encodeURIComponent(docPath)}?h=${encodeURIComponent(id)}`;
-        const done = () => {
-          btn.textContent = '✓';
-          btn.classList.add('ok');
-          setTimeout(() => { btn.textContent = '¶'; btn.classList.remove('ok'); }, 1400);
-        };
-        /* v8：剪贴板 API 在非安全上下文/无权限时会 reject——降级到 execCommand，
-           两条路都失败才提示用户手动复制，不再「点了没反应」。 */
-        const fallback = () => {
-          const ta = document.createElement('textarea');
-          ta.value = url; document.body.appendChild(ta); ta.select();
-          try { document.execCommand('copy'); done(); }
-          catch { notify('复制失败，请手动复制地址栏链接', 'warn'); }
-          ta.remove();
-        };
-        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done).catch(fallback);
-        else fallback();
-      });
-      h.prepend(btn);
-    });
-    /* 目录回调（TOC 数据源） */
-    cbRef.current.onHeadings?.(
-      [...el.querySelectorAll('h2, h3, h4')]
-        .filter(h => h.id)
-        .map(h => ({ id: h.id, text: h.textContent?.replace(/^¶/, '').trim() || '', level: Math.max(1, +h.tagName[1] - 1), el: h as HTMLElement })),
-    );
-    if (state.s === 'ok') {
-      paintEvidenceSpans(el, state.doc.evSnippets);
-      const loci: Record<number, { heading: string; para: string }> = {};
-      el.querySelectorAll<HTMLElement>('mark.ev-hl[data-ev-id]').forEach(m => {
-        const id = Number(m.dataset.evId);
-        if (!Number.isFinite(id)) return;
-        loci[id] = { heading: m.dataset.heading || '', para: m.dataset.para || '' };
-      });
-      cbRef.current.onEvidenceLoci?.(loci);
-    }
-    el.querySelectorAll('img').forEach(img => {
-      img.setAttribute('decoding', 'async');
-      if (!img.hasAttribute('loading')) img.setAttribute('loading', 'lazy');
-      img.classList.add('ar-img-open');
-      img.addEventListener('click', ev => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        const pane = img.closest('.ar-pane');
-        const list = pane
-          ? [...pane.querySelectorAll<HTMLImageElement>('img.ar-img-open')].map(im => ({
-            src: im.currentSrc || im.src,
-            alt: im.alt || '',
-          })).filter(x => x.src)
-          : [{ src: img.currentSrc || img.src, alt: img.alt || '' }];
-        window.dispatchEvent(new CustomEvent('mneme:img', {
-          detail: { src: img.currentSrc || img.src, alt: img.alt || '', list },
-        }));
-      });
-    });
-    if (state.s === 'ok') wrapPersonNames(el, state.doc.persons || []);
-    if (state.s === 'ok' && track) paintLocalHighlights(el, getHighlights(path));
-  }, [state, html]);
-
-  /* 锚点定位：渲染完成后滚动到目标标题并闪烁一次（章节面板材料链落点） */
-  useEffect(() => {
-    if (!anchor || state.s !== 'ok') return;
-    let tries = 0;
-    let timer = 0;
-    const find = () => {
-      tries += 1;
-      const el = bodyRef.current?.querySelector(`#${CSS.escape(anchor)}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        el.classList.add('anchor-flash');
-        setTimeout(() => el.classList.remove('anchor-flash'), 2200);
-        return;
-      }
-      if (tries < 20) timer = window.setTimeout(find, 100);
-    };
-    find();
-    return () => window.clearTimeout(timer);
-  }, [anchor, state]);
-
-  /* 证据灯塔 / 深链：渲染完成后滚到片段并聚焦（不拆除其余内联标） */
-  useEffect(() => {
-    if (state.s !== 'ok' || evidenceId == null) return;
-    const snip = state.doc.evSnippets.find(s => s.id === evidenceId)?.snippet || recalledEvidence(evidenceId);
-    let tries = 0;
-    let timer = 0;
-    const find = () => {
-      tries += 1;
-      const root = bodyRef.current;
-      if (root) {
-        const el = focusEvidence(root, { id: evidenceId, snippet: snip });
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          return;
-        }
-      }
-      if (tries < 20) timer = window.setTimeout(find, 100);
-    };
-    find();
-    return () => window.clearTimeout(timer);
-  }, [evidenceId, state, html]);
-
-  /* 检索词落到正文：与证据标并存。有证据深链或标题锚点时不抢滚动。 */
-  useEffect(() => {
-    const root = bodyRef.current;
-    if (state.s !== 'ok' || !root) return;
-    const needle = (query || '').trim();
-    if (!needle) { clearQueryMarks(root); return; }
-    let tries = 0;
-    let timer = 0;
-    const find = () => {
-      tries += 1;
-      const el = highlightQuery(root, needle);
-      if (el) {
-        if (evidenceId == null && !anchor) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return;
-      }
-      if (tries < 20) timer = window.setTimeout(find, 100);
-    };
-    find();
-    return () => window.clearTimeout(timer);
-  }, [query, evidenceId, anchor, state, html]);
-
-  const onBodyClick = (e: React.MouseEvent) => {
-    const mark = (e.target as HTMLElement).closest('mark.ev-hl') as HTMLElement | null;
-    if (mark?.dataset.evId) {
-      const id = +mark.dataset.evId;
-      if (bodyRef.current) focusEvidence(bodyRef.current, { id });
-      cbRef.current.onEvidenceFocus?.(id);
-      return;
-    }
-    const pn = (e.target as HTMLElement).closest('button.ar-pname') as HTMLButtonElement | null;
-    if (pn?.dataset.pid) {
-      e.preventDefault();
-      if (pn.dataset.locked) askUnlock();
-      else onOpenPerson(+pn.dataset.pid);
-      return;
-    }
-    const t = (e.target as HTMLElement).closest('a.wl') as HTMLAnchorElement | null;
-    if (t) {
-      if (isModifiedClick(e)) return;
-      e.preventDefault();
-      onNavigate(t.dataset.wl || '');
-    }
-  };
-  const onRetry = () => setRetry(n => n + 1);
-
-  if (state.s === 'miss') {
-    const recents = getRecentDocs().filter(d => d.path && !/私人资料|(^|\/)隐私\//.test(d.path)).slice(0, 3);
-    return (
-    <div className="ar-miss surface">
-      <p className="greek ar-miss-greek">ΜΗ ΕΥΡΕΘΗΚΕ</p>
-      <h2>未收录，或已隔离</h2>
-      <p className="ar-miss-sub">该页面不在公开层——它可能尚未建立，也可能属于被精心守护的部分。</p>
-      <div className="ar-miss-acts">
-        {recents.map(d => (
-          <button key={d.path} type="button" className="mu-ledger" onClick={() => onNavigate(d.path)}>续读 · {d.title}</button>
-        ))}
-        <button type="button" className="mu-ledger" onClick={() => window.dispatchEvent(new CustomEvent('mneme:search'))}>检索全库 →</button>
-      </div>
-    </div>
-    );
-  }
-  if (state.s === 'lock') return (
-    <div className="ar-miss surface">
-      <p className="greek ar-miss-greek">ΑΠΟΡΡΗΤΟΝ</p>
-      <h2>此为绝密档案</h2>
-      <p className="ar-miss-sub">它被单独封存——输入管理员密码后即可开启。</p>
-      <button type="button" className="mu-ledger" onClick={() => window.dispatchEvent(new CustomEvent('mneme:locked'))}>输入管理员密码 →</button>
-    </div>
-  );
-  if (state.s === 'net') return (
-    <div className="ar-miss surface">
-      <p className="greek ar-miss-greek">ΔΙΚΤΥΟ</p>
-      <h2>网络异常</h2>
-      <p className="ar-miss-sub">内容取回失败——这不是「未收录」，是网络或服务暂时不可用。</p>
-      <button className="mu-ledger" onClick={onRetry}>重新加载 →</button>
-    </div>
-  );
-  if (state.s === 'loading') return <div className="ar-loading">展开纸页…</div>;
-  return (
-    <article className={`ar-body ${compact ? 'compact' : ''}`} ref={bodyRef} onClick={onBodyClick} />
-  );
-}
-
-/* ---------------- 阅读器设置 ---------------- */
-
-interface ReaderCfg { fs: 15 | 16 | 17 | 18; mw: 'n' | 'm' | 'w'; ff: 'serif' | 'sans'; sync: boolean }
-const READER_KEY = 'mneme-reader';
-const remainLabel = (body: string, ratio: number) => {
-  const n = body.replace(/\s+/g, '').length;
-  if (n < 80) return '不足一分钟';
-  const total = Math.max(1, Math.round(n / 400));
-  const left = Math.max(0, Math.round(total * (1 - ratio)));
-  const pct = Math.round(Math.min(1, Math.max(0, ratio)) * 100);
-  if (left <= 0) return `已读完 · ${n.toLocaleString()} 字`;
-  return `已读 ${pct}% · 剩余约 ${left} 分钟 · ${n.toLocaleString()} 字`;
-};
-
-function wrapPersonNames(root: HTMLElement, persons: { id: number; display_name: string; locked?: boolean }[]) {
-  const list = persons
-    .filter(p => p.display_name && p.display_name.length >= 2)
-    .sort((a, b) => b.display_name.length - a.display_name.length)
-    .slice(0, 24);
-  if (!list.length) return;
-  const skip = new Set(['A', 'BUTTON', 'CODE', 'PRE', 'SCRIPT', 'TEXTAREA', 'MARK']);
-  const walk = (node: Node) => {
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node as HTMLElement;
-      if (skip.has(el.tagName) || el.classList.contains('ar-pname') || el.classList.contains('h-copy')) return;
-      [...node.childNodes].forEach(walk);
-      return;
-    }
-    if (node.nodeType !== Node.TEXT_NODE) return;
-    const text = node.textContent || '';
-    if (!text.trim()) return;
-    const hit = list.find(p => text.includes(p.display_name));
-    if (!hit) return;
-    const i = text.indexOf(hit.display_name);
-    const frag = document.createDocumentFragment();
-    if (i > 0) frag.append(text.slice(0, i));
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = `ar-pname${hit.locked ? ' locked' : ''}`;
-    btn.dataset.pid = String(hit.id);
-    if (hit.locked) btn.dataset.locked = '1';
-    btn.textContent = hit.display_name;
-    frag.append(btn);
-    const rest = i + hit.display_name.length < text.length ? text.slice(i + hit.display_name.length) : '';
-    if (rest) {
-      const tn = document.createTextNode(rest);
-      frag.append(tn);
-      node.parentNode?.replaceChild(frag, node);
-      walk(tn);
-      return;
-    }
-    node.parentNode?.replaceChild(frag, node);
-  };
-  walk(root);
-}
-const READER_MW: Record<ReaderCfg['mw'], string> = { n: '38em', m: '44em', w: '100%' };
-const loadReader = (): ReaderCfg => {
-  try {
-    const v = JSON.parse(localStorage.getItem(READER_KEY) || '');
-    if (v && [15, 16, 17, 18].includes(v.fs) && ['n', 'm', 'w'].includes(v.mw) && ['serif', 'sans'].includes(v.ff)) {
-      return { fs: v.fs, mw: v.mw, ff: v.ff, sync: v.sync !== false };
-    }
-  } catch { /* 首访/损坏 → 默认 */ }
-  return { fs: 17, mw: 'm', ff: 'serif', sync: true };
-};
-
-function ReaderSettings({ cfg, onChange }: { cfg: ReaderCfg; onChange: (c: ReaderCfg) => void }) {
-  const seg = <T extends string | number>(opts: { v: T; label: string }[], cur: T, set: (v: T) => void) => (
-    <div className="rs-seg">
-      {opts.map(o => (
-        <button key={String(o.v)} className={`rs-btn ${cur === o.v ? 'on' : ''}`} onClick={() => set(o.v)}>{o.label}</button>
-      ))}
-    </div>
-  );
-  return (
-    <div className="rs glass" role="dialog" aria-label="阅读器设置">
-      <p className="rs-row"><span>字号</span>{seg([{ v: 15 as const, label: '小' }, { v: 16 as const, label: '中' }, { v: 17 as const, label: '大' }, { v: 18 as const, label: '特大' }], cfg.fs, fs => onChange({ ...cfg, fs }))}</p>
-      <p className="rs-row"><span>行宽</span>{seg([{ v: 'n' as const, label: '窄' }, { v: 'm' as const, label: '适中' }, { v: 'w' as const, label: '全宽' }], cfg.mw, mw => onChange({ ...cfg, mw }))}</p>
-      <p className="rs-row"><span>字体</span>{seg([{ v: 'serif' as const, label: '宋体' }, { v: 'sans' as const, label: '黑体' }], cfg.ff, ff => onChange({ ...cfg, ff }))}</p>
-      <p className="rs-row"><span>对照同步滚</span>{seg([{ v: 1 as const, label: '开' }, { v: 0 as const, label: '关' }], cfg.sync ? 1 : 0, v => onChange({ ...cfg, sync: !!v }))}</p>
-    </div>
-  );
-}
-
-/* ---------------- 次栏选择器（双栏对照用） ---------------- */
-
 const VOL_DESIGN: Record<string, string> = {
   P0: '百万长文写作/章稿/00-读法.md',
   B1: '百万长文写作/章稿/第一部-空格.md',
@@ -496,46 +37,6 @@ const VOL_NAME: Record<string, string> = {
   P0: '序', B1: '空格', B2: '亲爱的', B3: '桌上', B4: '西侧', B5: '十七天', B6: '保存', AX: '附录',
 };
 
-function SecPicker({ onPick, suggested }: { onPick: (path: string) => void; suggested?: { path: string; label: string } | null }) {
-  const [q, setQ] = useState('');
-  const [docs, setDocs] = useState<{ path: string; title: string; domain: string }[]>([]);
-  useEffect(() => {
-    const query = q.trim();
-    if (!query) { setDocs([]); return; }
-    const t = setTimeout(() => {
-      api.search(query)
-        .then(r => setDocs((r.groups.doc ?? []).filter(d => !d.locked && isPublicPath(d.path)).slice(0, 8)))
-        .catch(e => { setDocs([]); notify(apiErrorMessage(e), 'error'); });
-    }, 300);
-    return () => clearTimeout(t);
-  }, [q]);
-  const recents = getRecentDocs().filter(d => isPublicPath(d.path)).slice(0, 6);
-  return (
-    <div className="ar-picker glass">
-      <h2>对照阅读 · 选择右栏文档</h2>
-      {suggested && isPublicPath(suggested.path) && (
-        <button className="ar-pick-sug" onClick={() => onPick(suggested.path)} title={suggested.path}>
-          <b>本部章稿 · {suggested.label}</b>
-          <span>默认对照：章节设计 ⇄ 原文逐段核对</span>
-        </button>
-      )}
-      <input className="ar-picker-q" value={q} onChange={e => setQ(e.target.value)} placeholder="检索文档标题/正文…" aria-label="检索对照文档" />
-      {q.trim() && (docs.length > 0 ? (
-        <div className="ar-picker-list">
-          {docs.map(d => <button key={d.path} onClick={() => onPick(d.path)}><b>{d.title}</b><span>{d.domain}</span></button>)}
-        </div>
-      ) : <p className="ar-picker-none">无所检出。</p>)}
-      {!q.trim() && recents.length > 0 && (
-        <div className="ar-picker-list">
-          {recents.map(d => <button key={d.path} onClick={() => onPick(d.path)}><b>{d.title}</b><span>{d.domain}</span></button>)}
-        </div>
-      )}
-      <p className="ar-picker-hint">典型用法：左栏开章节设计，右栏开对应原文，逐段核对。</p>
-    </div>
-  );
-}
-
-/* ---------------- Archive：工作区外壳 ---------------- */
 
 export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPerson, onOpenVolume, onOpenDomain, onOpenStage, onOpenImagery, onOpenEvent }: {
   path: string;
@@ -599,6 +100,10 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
   const [evFocus, setEvFocus] = useState<number | undefined>(evidenceId);
   const [evLoci, setEvLoci] = useState<Record<number, { heading: string; para: string }>>({});
   useEffect(() => { ensureCjkSerif(); }, []);
+  useEffect(() => {
+    const code = bookFromVolume(meta?.volume ?? null);
+    if (code) document.documentElement.dataset.book = code;
+  }, [meta?.volume]);
   useEffect(() => {
     try { localStorage.setItem('mneme-ar-panels', JSON.stringify({ toc: tocOpen, insp: inspOpen })); } catch { /* 隐私模式 */ }
   }, [tocOpen, inspOpen]);
@@ -843,6 +348,9 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
               </>
             ) : '\u00A0'}
           </p>
+          {meta?.volume ? (
+            <p className="ar-print-vol">{VOL_NAME[meta.volume] || meta.volume} · {meta.volume}</p>
+          ) : null}
           <h1>{meta ? meta.title : path.replace(/\.md$/, '').split('/').pop()}</h1>
         </div>
         <div className="ar-toolbar" ref={rsRef}>
@@ -850,26 +358,19 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
           <button className={`ar-tool ${dual ? 'on' : ''}`} onClick={() => { setDual(v => !v); if (!dual) setSecPath(p => p ?? volDesign?.path ?? null); }} title="双栏对照阅读 · d">对照</button>
           <button className={`ar-tool ${editOpen ? 'on' : ''}`} onClick={() => { setEditOpen(v => !v); setWantAi(false); }} title="编辑本篇 · e">编辑</button>
           <button className={`ar-tool ${inspOpen ? 'on' : ''}`} onClick={() => setInspOpen(v => !v)} title="来源检查器 · i">检查器</button>
-          <button className={`ar-tool ${findOpen ? 'on' : ''}`} onClick={() => { setFindOpen(v => !v); if (!findOpen) window.setTimeout(() => findRef.current?.focus(), 30); }} title="本篇查找">找</button>
-          {findOpen && (
-            <span className="ar-find">
-              <input
-                ref={findRef}
-                className="ar-find-q"
-                value={findQ}
-                onChange={e => setFindQ(e.target.value)}
-                placeholder="本篇查找"
-                aria-label="本篇查找"
-                onKeyDown={e => {
-                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                  if (e.key === 'Enter') { e.preventDefault(); jumpFind(e.shiftKey ? -1 : 1); }
-                  if (e.key === 'Escape') { setFindOpen(false); setFindQ(''); }
-                }}
-              />
-              <em>{findN ? `${findI}/${findN}` : 0}</em>
-            </span>
-          )}
+          <FindBar
+            open={findOpen}
+            q={findQ}
+            n={findN}
+            i={findI}
+            inputRef={findRef}
+            onToggle={() => { setFindOpen(v => !v); if (!findOpen) window.setTimeout(() => findRef.current?.focus(), 30); }}
+            onChange={setFindQ}
+            onJump={jumpFind}
+            onClose={() => { setFindOpen(false); setFindQ(''); }}
+          />
           <span className="ar-tool-sep" />
+          <button type="button" className="ar-tool" onClick={() => window.dispatchEvent(new CustomEvent('mneme:focus'))} title="专注态 · Shift+F">专注</button>
           <button className={`ar-tool ${rsOpen ? 'on' : ''}`} onClick={() => setRsOpen(v => !v)} title="阅读器设置 · a">Aa</button>
           {rsOpen && <ReaderSettings cfg={reader} onChange={setReader} />}
         </div>
@@ -939,7 +440,11 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
               <section className="ar-card surface">
                 <h2>人物提及</h2>
                 {meta.persons.map(p => (
-                  <button key={p.id} className="ar-link" onClick={() => p.locked ? askUnlock() : onOpenPerson(p.id)}>
+                  <button key={p.id} className="ar-link" onClick={() => {
+                    if (p.locked) { askUnlock(); return; }
+                    recordPerson({ id: p.id, name: p.display_name });
+                    onOpenPerson(p.id);
+                  }}>
                     {p.display_name}{p.locked ? ' · 锁' : ''}<em>{p.mention_count}</em>
                   </button>
                 ))}
@@ -1025,38 +530,22 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
                 <h2>相关意象</h2>
                 <div className="ar-chips">
                   {meta.imagery!.map(im => (
-                    <button key={im.id} className="ar-chip" onClick={() => onOpenImagery?.(im.id)} title="在 Σ6 意象博物馆打开">
+                    <button key={im.id} className="ar-chip" onClick={() => {
+                      recordImagery({ id: im.id, name: im.name });
+                      onOpenImagery?.(im.id);
+                    }} title="在 Σ6 意象博物馆打开">
                       {im.name}<em>{im.occ}</em>
                     </button>
                   ))}
                 </div>
               </section>
             )}
-            {localMarks.length > 0 && (
-              <section className="ar-card surface">
-                <h2>本机划线</h2>
-                <p className="ar-ev-note">只存在这台浏览器，不写回知识库。</p>
-                {localMarks.map(h => (
-                  <div key={h.id} className="ar-hl">
-                    <button type="button" className="ar-link" onClick={() => {
-                      const root = document.querySelector('.ar-pane:not(.sec) .ar-body') as HTMLElement | null;
-                      const el = root ? focusLocalHighlight(root, h.id) : null;
-                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                      else {
-                        setFindOpen(true);
-                        setFindQ(h.snippet.slice(0, 48));
-                      }
-                    }}>{h.snippet}</button>
-                    <button type="button" className="ar-hl-x" aria-label="删除划线" onClick={() => {
-                      removeHighlight(h.id);
-                      setHlTick(n => n + 1);
-                      const root = document.querySelector('.ar-pane:not(.sec) .ar-body') as HTMLElement | null;
-                      if (root) paintLocalHighlights(root, getHighlights(path));
-                    }}>删</button>
-                  </div>
-                ))}
-              </section>
-            )}
+            <HighlightList
+              path={path}
+              marks={localMarks}
+              onChange={() => setHlTick(n => n + 1)}
+              onSeek={snippet => { setFindOpen(true); setFindQ(snippet); }}
+            />
             {meta && meta.persons.length === 0 && meta.backlinks.length === 0 && meta.evSnippets.length === 0
               && !meta.volume && !meta.domain && !meta.stage
               && (meta.timeline?.length ?? 0) === 0 && (meta.imagery?.length ?? 0) === 0 && localMarks.length === 0 && (
@@ -1066,27 +555,13 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
         )}
       </div>
       {pop && (
-        <div
-          className="ar-pop glass"
-          style={{ left: pop.x, top: pop.y }}
-          onMouseDown={e => e.preventDefault()}
-        >
-          <button type="button" onClick={() => {
-            if (!isPublicPath(path)) return;
-            addHighlight({ path, title: meta?.title || '', heading: pop.heading, snippet: pop.text });
-            setHlTick(n => n + 1);
-            const root = document.querySelector('.ar-pane:not(.sec) .ar-body') as HTMLElement | null;
-            if (root) paintLocalHighlights(root, getHighlights(path));
-            window.getSelection()?.removeAllRanges();
-            setPop(null);
-            notify('已记下本机划线', 'info');
-          }}>划线</button>
-          <button type="button" onClick={() => {
-            copyPermalink({ title: meta?.title, heading: pop.heading, snippet: pop.text });
-            window.getSelection()?.removeAllRanges();
-            setPop(null);
-          }}>复制引用</button>
-        </div>
+        <HighlightPop
+          pop={pop}
+          path={path}
+          title={meta?.title || ''}
+          onClose={() => setPop(null)}
+          onSaved={() => setHlTick(n => n + 1)}
+        />
       )}
       {shot && (
         <div

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, apiErrorMessage } from '../api';
 import { notify } from '../toast';
+import { getLastChapter } from '../history';
+import { loadPublicCatalog, nextChapterHint, recordPerson, type PublicChapterHint } from '../silk';
 
 /**
  * v4 · C2 每日星座：「今天的天空记住今天」。
@@ -46,11 +48,16 @@ const loadGraph = () => {
   return graphCache;
 };
 
-export function DailySky({ theme, onOpenPerson }: { theme: 'paper' | 'night'; onOpenPerson: (id: number) => void }) {
+export function DailySky({ theme, onOpenPerson, onOpenChapter }: {
+  theme: 'paper' | 'night';
+  onOpenPerson: (id: number) => void;
+  onOpenChapter?: (code: string, seq: number) => void;
+}) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [today] = useState(() => new Date());
   const [hover, setHover] = useState<{ name: string; x: number; y: number } | null>(null);
+  const [hint, setHint] = useState<PublicChapterHint | null>(null);
   const [gen, setGen] = useState(0);
   const skyRef = useRef<{ nodes: SkyNode[]; edges: SkyEdge[] }>({ nodes: [], edges: [] });
 
@@ -59,6 +66,13 @@ export function DailySky({ theme, onOpenPerson }: { theme: 'paper' | 'night'; on
     window.addEventListener('mneme:unlocked', onUnlocked);
     return () => window.removeEventListener('mneme:unlocked', onUnlocked);
   }, []);
+  useEffect(() => {
+    let dead = false;
+    loadPublicCatalog().then(cat => {
+      if (!dead) setHint(nextChapterHint(getLastChapter(), cat));
+    });
+    return () => { dead = true; };
+  }, [gen]);
 
   useEffect(() => {
     let disposed = false;
@@ -198,7 +212,7 @@ export function DailySky({ theme, onOpenPerson }: { theme: 'paper' | 'night'; on
   const click = () => {
     if (!hover) return;
     const n = skyRef.current.nodes.find(x => x.name === hover.name);
-    if (n) onOpenPerson(n.id);
+    if (n) { recordPerson({ id: n.id, name: n.name }); onOpenPerson(n.id); }
   };
 
   const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -209,6 +223,11 @@ export function DailySky({ theme, onOpenPerson }: { theme: 'paper' | 'night'; on
         <p className="greek ds-kicker">ΩΡΑΣΚΟΠΙΟΝ · 今日星座</p>
         <h2>{today.getFullYear()} 年 {mm} 月 {dd} 日 的天空</h2>
         <p className="ds-sub">以今天为种子生成的星座——同一天重访，看见同一片。星等=真实提及量，连线=真实共现。</p>
+        {hint && onOpenChapter && (
+          <button type="button" className="ds-next" onClick={() => onOpenChapter(hint.code, hint.seq)}>
+            按昨天停的地方往下翻 · {hint.volume} · {hint.title}
+          </button>
+        )}
       </header>
       <canvas
         ref={canvasRef}

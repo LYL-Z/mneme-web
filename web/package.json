@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "test:privacy": "node --experimental-sqlite ../ingest/test-privacy.mjs",
     "test:api": "node --experimental-sqlite ../ingest/test-api-privacy.mjs",
+    "test:silk": "node scripts/test-silk.mjs",
     "test:strict": "node --experimental-sqlite ../ingest/test-strict.mjs",
     "lh:field": "node scripts/lighthouse-field.mjs",
     "smoke": "node --input-type=module -e \"console.log('公开仓不含带口令的浏览器验收稿；本地请对运行中的实例做点击复核。')\""

@@ -1,0 +1,23 @@
+import { createRequire } from 'module';
+import fs from 'fs';
+const req = createRequire(import.meta.url);
+const { chromium } = req('playwright-core');
+(async () => {
+  const b = await chromium.launch({ executablePath: 'C:/Users/Lenovo/.agent-browser/browsers/chrome-152.0.7977.82/chrome.exe', headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
+  const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+  await p.request.post('http://127.0.0.1:8491/api/login', { data: { token: 'mneme' } });
+  await p.addInitScript(() => { sessionStorage.setItem('mneme-gate', '1'); });
+  await p.goto('http://127.0.0.1:8491/', { waitUntil: 'load' });
+  await p.waitForSelector('.anno-mask', { timeout: 20000 });
+  await p.waitForTimeout(2200);
+  await p.click('.anno-enter');
+  await p.waitForTimeout(700);
+  await p.screenshot({ path: 'C:/Users/Lenovo/.workbuddy/tmp/v51-f1.png' });
+  await p.waitForTimeout(900);
+  await p.screenshot({ path: 'C:/Users/Lenovo/.workbuddy/tmp/v51-f2.png' });
+  await p.waitForTimeout(1200);
+  await p.screenshot({ path: 'C:/Users/Lenovo/.workbuddy/tmp/v51-f3.png' });
+  const st = await p.evaluate(() => ({ canvas: !![...document.querySelectorAll('body > canvas')].find(c => c.style.zIndex === '200'), clip: document.querySelector('.anno-card')?.style.clipPath }));
+  fs.writeFileSync('C:/Users/Lenovo/.workbuddy/tmp/v51-result.txt', JSON.stringify(st));
+  await b.close();
+})().catch(e => fs.writeFileSync('C:/Users/Lenovo/.workbuddy/tmp/v51-result.txt', 'ERR ' + e.message));

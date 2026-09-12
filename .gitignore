@@ -79,3 +79,4 @@ web/v46-prod.mjs
 web/v5-ripple.mjs
 web/r4-audit.mjs
 web/r4-verify.mjs
+web/r5-audit.mjs

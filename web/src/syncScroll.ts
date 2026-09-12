@@ -63,12 +63,22 @@ export function bindSyncScroll(a: HTMLElement, b: HTMLElement): () => void {
     }
     requestAnimationFrame(() => { lock = 0; });
   };
-  const onA = () => follow(a, b);
-  const onB = () => follow(b, a);
+  let rafA = 0;
+  let rafB = 0;
+  const onA = () => {
+    if (rafA) return;
+    rafA = requestAnimationFrame(() => { rafA = 0; follow(a, b); });
+  };
+  const onB = () => {
+    if (rafB) return;
+    rafB = requestAnimationFrame(() => { rafB = 0; follow(b, a); });
+  };
   a.addEventListener('scroll', onA, { passive: true });
   b.addEventListener('scroll', onB, { passive: true });
   return () => {
     a.removeEventListener('scroll', onA);
     b.removeEventListener('scroll', onB);
+    cancelAnimationFrame(rafA);
+    cancelAnimationFrame(rafB);
   };
 }

@@ -42,6 +42,7 @@ const ROWS: { keys: string; name: string }[] = [
   { keys: '↑ / ↓', name: '书房目录 · 上一行 / 下一行' },
   { keys: '[ / ]', name: '章节链上一题 / 下一题；原文则走邻篇' },
   { keys: 'f / ⌘F', name: '本篇查找（原文）' },
+  { keys: 'Shift+F', name: '专注态（藏左栏与丰碑，留纸、进度、丝带）' },
   { keys: '← / →', name: '放大图上一张 / 下一张' },
   { keys: 'n / N', name: '下一处 / 上一处检索标' },
   { keys: 'c', name: '复制深链（有选区则带摘句）' },

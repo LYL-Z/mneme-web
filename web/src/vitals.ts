@@ -29,6 +29,7 @@ const write = (list: VitalSample[]) => {
 
 function deviceKind(): string {
   const ua = navigator.userAgent;
+  if (/HarmonyOS|OpenHarmony|ArkWeb|HuaweiBrowser/i.test(ua) || /HUAWEI|HONOR/i.test(ua)) return 'harmony';
   if (/iPhone|iPod/.test(ua)) return 'iphone';
   if (/iPad/.test(ua)) return 'ipad';
   if (/Android/.test(ua)) return 'android';

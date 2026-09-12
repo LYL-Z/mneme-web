@@ -3,6 +3,7 @@ import { animate, stagger } from 'animejs';
 import { ApiError, api, apiErrorMessage, type ImageryItem, type ImageryOcc } from '../api';
 import { notify } from '../toast';
 import { askUnlock } from '../unlock';
+import { recordImagery } from '../silk';
 
 /**
  * Σ6 意象博物馆 · v3.1
@@ -33,7 +34,10 @@ export function Museum({ focusId, onClearFocus, onOpenDoc }: {
       else notify(apiErrorMessage(e), 'error');
       return null;
     });
-    if (one) setCur({ item, occ: one.occurrences, ledgerPath: one.ledgerPath, relatedImagery: one.relatedImagery ?? [] });
+    if (one) {
+      recordImagery({ id: item.id, name: item.name });
+      setCur({ item, occ: one.occurrences, ledgerPath: one.ledgerPath, relatedImagery: one.relatedImagery ?? [] });
+    }
   };
 
   /* 外部聚焦（书房/主题域的意象互链）：直接展开对应展柜 */

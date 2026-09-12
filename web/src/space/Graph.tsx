@@ -8,6 +8,7 @@ import { notify } from '../toast';
 import { evidenceLabel } from '../evidenceKind';
 import { useFocusTrap } from '../focusTrap';
 import { askUnlock } from '../unlock';
+import { recordPerson } from '../silk';
 
 /**
  * Σ3 人物星图 · v7「行星旷野」
@@ -236,6 +237,7 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onOpenPerson, onClearFo
   const tryPerson = (id: number) => {
     const n = byIdRef.current.get(id) ?? data?.nodes.find(x => x.id === id);
     if (n?.locked) { askUnlock(); return; }
+    if (n && !n.locked) recordPerson({ id, name: n.name });
     if (onOpenPerson) onOpenPerson(id);
     else openSheet(id);
   };

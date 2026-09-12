@@ -109,6 +109,8 @@ const notFound = (c) => c.json({ error: 'not found' }, 404);
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 天（与部署手册一致）
 const isHttps = (c) => CLOUD || (c.req.header('x-forwarded-proto') || '').split(',')[0].trim() === 'https';
 const cookieOpts = (c) => ({ httpOnly: true, sameSite: 'Lax', path: '/', maxAge: COOKIE_MAX_AGE, secure: isHttps(c) });
+/* 绝密门：会话 cookie，关浏览器即失效；客户端次日再锁。不写可导出存储。 */
+const secretCookieOpts = (c) => ({ httpOnly: true, sameSite: 'Lax', path: '/', secure: isHttps(c) });
 
 const app = new Hono();
 
@@ -306,7 +308,11 @@ app.post('/api/secret/unlock', async (c) => {
   if (!SECRET_PASSWORD) return c.json({ error: 'secret not configured' }, 503);
   if (password !== SECRET_PASSWORD) { loginFail(ip); return c.json({ error: 'bad password' }, 403); }
   loginFails.delete(ip);
-  setCookie(c, SECRET_COOKIE, SECRET_TOKEN, cookieOpts(c));
+  setCookie(c, SECRET_COOKIE, SECRET_TOKEN, secretCookieOpts(c));
+  return c.json({ ok: true });
+});
+app.post('/api/secret/lock', (c) => {
+  deleteCookie(c, SECRET_COOKIE, { path: '/' });
   return c.json({ ok: true });
 });
 app.get('/api/secret/status', (c) => c.json({ unlocked: isUnlocked(c) }));

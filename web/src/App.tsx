@@ -1,6 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { animate } from 'animejs';
-import { api, apiErrorMessage, type Overview } from './api';
+import { api, apiErrorMessage, swrInvalidate, type Overview } from './api';
 import { notify } from './toast';
 import ErrorBoundary from './ErrorBoundary';
 import { Gate } from './space/Gate';
@@ -19,6 +18,8 @@ import { useFocusTrap } from './focusTrap';
 import { stageAnchorYear } from './stages';
 import { parseLocation, routeId, routeToPath, migrateHashIfNeeded, type Route, type SpaceKey, type RiverQuery } from './route';
 import { getDocNeighbors, getRecentDocs, isPublicPath, resumeTarget } from './history';
+import { bookFromVolume, clearSilkCatalog } from './silk';
+import { SilkRibbon } from './space/SilkRibbon';
 import { purgePublicDrafts } from './drafts';
 import { readScroller } from './readHost';
 import { prefetchSpace, prefetchWorkbench } from './prefetch';
@@ -111,6 +112,9 @@ export default function App() {
   const [gateDone, setGateDone] = useState(() => sessionStorage.getItem('mneme-gate') === '1');
   const [annoOpen, setAnnoOpen] = useState(() => sessionStorage.getItem('mneme-gate') === '1' && !sessionStorage.getItem('mneme-anno'));
   const [secretOpen, setSecretOpen] = useState(false);
+  const [focusRead, setFocusRead] = useState(() => {
+    try { return localStorage.getItem('mneme-focus') === '1'; } catch { return false; }
+  });
   useEffect(() => {
     immLevel(); // v4 · 沉浸光感：ADAPTIVE 档位探测
     watchFps();  // v5.1 · 运行时帧率哨兵：卡顿自动降档
@@ -121,13 +125,20 @@ export default function App() {
   useEffect(() => {
     const onGate = (e: Event) => setSecretOpen(!!(e as CustomEvent<boolean>).detail);
     const onSearch = () => { setCkOpen(true); setHelpOpen(false); };
+    const onFocus = () => setFocusRead(v => !v);
     window.addEventListener('mneme:secret-gate', onGate);
     window.addEventListener('mneme:search', onSearch);
+    window.addEventListener('mneme:focus', onFocus);
     return () => {
       window.removeEventListener('mneme:secret-gate', onGate);
       window.removeEventListener('mneme:search', onSearch);
+      window.removeEventListener('mneme:focus', onFocus);
     };
   }, []);
+  useEffect(() => {
+    document.documentElement.classList.toggle('focus-read', focusRead);
+    try { localStorage.setItem('mneme-focus', focusRead ? '1' : '0'); } catch { /* */ }
+  }, [focusRead]);
   useEffect(() => {
     if (!gateDone) return;
     const host = readScroller() || document.querySelector('.space-host') as HTMLElement | null;
@@ -139,6 +150,24 @@ export default function App() {
   }, [gateDone]);
   const [ov, setOv] = useState<Overview | null>(null);
   const [vaultOpen, setVaultOpen] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      document.documentElement.classList.toggle('page-hidden', document.hidden);
+      try {
+        const day = sessionStorage.getItem('mneme-unlock-day');
+        if (day && day !== new Date().toDateString()) {
+          api.lockSecret().then(() => {
+            sessionStorage.removeItem('mneme-unlock-day');
+            setVaultOpen(false);
+            swrInvalidate();
+          }).catch(() => {});
+        }
+      } catch { /* */ }
+    };
+    check();
+    document.addEventListener('visibilitychange', check);
+    return () => document.removeEventListener('visibilitychange', check);
+  }, []);
   const [route, setRoute] = useState<Route>(() => {
     migrateHashIfNeeded();
     /* `/` 续读上次材料；显式 `/space/stars` 仍是门厅，避免「记忆恒星」点不回去。 */
@@ -177,7 +206,6 @@ export default function App() {
     return matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'paper';
   });
   const mainRef = useRef<HTMLElement>(null);
-  const firstPaint = useRef(true);
   const routeRef = useRef(route);
   routeRef.current = route;
 
@@ -186,7 +214,7 @@ export default function App() {
     const vault = () => api.secretStatus().then(s => setVaultOpen(s.unlocked)).catch(() => {});
     load();
     vault();
-    const onUnlocked = () => { setFoCount(null); load(); vault(); };
+    const onUnlocked = () => { setFoCount(null); clearSilkCatalog(); load(); vault(); };
     window.addEventListener('mneme:unlocked', onUnlocked);
     return () => window.removeEventListener('mneme:unlocked', onUnlocked);
   }, []);
@@ -201,6 +229,12 @@ export default function App() {
       : route.v === 'chapter' ? `章节 ${route.code}-${route.seq}`
       : '伏应矩阵';
     document.title = name ? `${name} · ΜΝΗΜΗ` : 'ΜΝΗΜΗ · 刘佑林的前半生';
+  }, [route]);
+  useEffect(() => {
+    const code = bookFromVolume(route.v === 'volume' || route.v === 'chapter' ? route.code : undefined);
+    const root = document.documentElement;
+    if (code) root.dataset.book = code;
+    else if (route.v !== 'doc') delete root.dataset.book;
   }, [route]);
 
   /* 总纲里的伏应条数接数据源（原先硬编码「25 条」，台账增删后必然过期） */
@@ -226,13 +260,7 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  /* 空间切换动画（首挂载跳过；v3.3 收窄至 260ms——审查预算：面板切换 180–260ms，操作感优先于展陈） */
-  useEffect(() => {
-    if (!gateDone || !mainRef.current) return;
-    if (firstPaint.current) { firstPaint.current = false; return; }
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches || !readPrefs().motion) return;
-    animate(mainRef.current, { opacity: [0, 1], translateY: [10, 0], duration: 260, ease: 'outExpo' });
-  }, [route, gateDone]);
+  /* 空间切换：丝带做 View Transition 共享元素，不再整页淡入 */
 
   /* 阅读位置：切换前记下当前路由的滚动，应用后恢复目标路由的滚动（A3：节流持久化） */
   useEffect(() => {
@@ -313,15 +341,21 @@ export default function App() {
       setTheme(mq.matches ? 'night' : 'paper');
     };
     const onSys = () => {
-      try { localStorage.removeItem('mneme-theme-manual'); } catch { /* */ }
+      try { localStorage.removeItem('mneme-theme-manual'); localStorage.removeItem('mneme-paper-lock'); } catch { /* */ }
       sync();
+    };
+    const onPaper = () => {
+      try { localStorage.setItem('mneme-theme-manual', '1'); } catch { /* */ }
+      setTheme('paper');
     };
     sync();
     mq.addEventListener('change', sync);
     window.addEventListener('mneme:theme-system', onSys);
+    window.addEventListener('mneme:theme-paper', onPaper);
     return () => {
       mq.removeEventListener('change', sync);
       window.removeEventListener('mneme:theme-system', onSys);
+      window.removeEventListener('mneme:theme-paper', onPaper);
     };
   }, []);
   const toggleTheme = useCallback(() => {
@@ -513,6 +547,11 @@ export default function App() {
         go({ v: 'doc', path: next });
         return;
       }
+      if (e.key === 'F' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setFocusRead(v => !v);
+        return;
+      }
       if (e.key === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && routeRef.current.v === 'doc') {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent('mneme:find'));
@@ -536,6 +575,9 @@ export default function App() {
   }, [ckOpen, helpOpen, moreOpen, tocOpen, go]);
 
   const spaceKey: SpaceKey = route.v === 'space' ? route.key : route.v === 'doc' ? 'archive' : route.v === 'person' ? 'graph' : route.v === 'imagery' ? 'museum' : 'study';
+  const bookCode = bookFromVolume(
+    route.v === 'volume' || route.v === 'chapter' ? route.code : undefined,
+  );
   const overlayOpen = tocOpen || ckOpen || helpOpen || moreOpen || annoOpen || secretOpen
     || route.v === 'chapter' || route.v === 'foreshadow';
   useEffect(() => {
@@ -638,6 +680,13 @@ export default function App() {
           </aside>
           <header className="topbar">
             <div className="read-bar" aria-hidden="true"><span ref={readBarRef} /></div>
+            <SilkRibbon
+              book={bookCode}
+              onOpenChapter={openChapter}
+              onOpenDoc={openDoc}
+              onOpenPerson={openPerson}
+              onOpenImagery={openImagery}
+            />
             <button className="top-search" onClick={() => setCkOpen(true)} aria-label="检索全库">
               <span>检索全库</span>
               <kbd>{ckHint}</kbd>
@@ -702,10 +751,12 @@ export default function App() {
           <main ref={mainRef} id="mneme-main" className="space-host" tabIndex={-1}>
             {/* 空间级错误边界：任一空间组件抛异常只坏这一块，导航与其余空间仍可用（原先整页白屏） */}
             <ErrorBoundary resetKey={routeId(route)} label={TOC[spaceKey]?.name}>
+            {bookCode === 'AX' && <p className="ax-banner" role="note">非事实</p>}
             {spaceKey === 'stars' && (
               <Stars
                 overview={ov}
                 theme={theme}
+                book={bookCode}
                 onEnterRiver={() => openSpace('river')}
                 onOpenChapter={openChapter}
                 onOpenDoc={openDoc}
@@ -842,6 +893,9 @@ export default function App() {
                 <div className="more-list">
                   <button type="button" className="more-item" onClick={() => { setMoreOpen(false); window.dispatchEvent(new CustomEvent('mneme:prefs')); }}>
                     <b>偏好</b><span>动效 · 足迹 · 主题跟随系统</span>
+                  </button>
+                  <button type="button" className="more-item" onClick={() => { setMoreOpen(false); setFocusRead(v => !v); }}>
+                    <b>{focusRead ? '退出专注' : '专注阅读'}</b><span>藏左栏与丰碑 · Shift+F</span>
                   </button>
                   <button type="button" className="more-item" onClick={() => bgmSet({ on: !bgmOn })}>
                     <b>{bgmOn ? '暂停背景音乐' : '播放背景音乐'}</b><span>音量在偏好里调</span>
