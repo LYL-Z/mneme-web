@@ -29,7 +29,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 /* 隐私门禁规则的唯一事实来源（server / store / store-pg 共用，禁止各写一套） */
-import { SECRET_NAME, SECRET_VOLUMES, LOCAL_PRIVACY, isPrivatePath, isSecretText, isSecretPath, isQuestionnaireEntity, mustHideEntity } from './privacy.mjs';
+import { SECRET_NAME, LOCAL_PRIVACY, isPrivatePath, isSecretText, isSecretPath, isQuestionnaireEntity, mustHideEntity } from './privacy.mjs';
 import { vaultReady, normRel, writeClass, readSource, writeSource, bodyFromRaw, titleFromRaw } from './vault.mjs';
 import { llmDraft, hasLlm } from './ai-draft.mjs';
 import { startVaultWatch, requestIngest, syncStatus } from './sync-watch.mjs';
@@ -315,15 +315,14 @@ app.get('/api/graph', (c) => { cache(c, 300); return c.json(store.graph({ unlock
 app.get('/api/volumes', (c) => { cache(c, 300); return c.json(store.volumes()); });
 app.get('/api/volumes/:code', (c) => {
   const code = c.req.param('code').toUpperCase();
-  if (SECRET_VOLUMES.includes(code) && !isUnlocked(c)) return locked(c); // 卷二卷三：绝密档案
-  const v = store.volume(code);
+  const v = store.volume(code, { unlocked: isUnlocked(c) });
   return v ? c.json(v) : notFound(c);
 });
-/* v3.4 · P3 章节材料链（只读闭环：章节→材料→片段→待核→回章节） */
+/* 章节材料链：目录公开；赵纲密章未解锁 → 403 弹窗 */
 app.get('/api/chapter/:code/:seq', (c) => {
   const code = c.req.param('code').toUpperCase();
-  if (SECRET_VOLUMES.includes(code) && !isUnlocked(c)) return locked(c); // 卷二卷三章节链同步门禁
-  const ch = store.chapter(code, +c.req.param('seq'));
+  const ch = store.chapter(code, +c.req.param('seq'), { unlocked: isUnlocked(c) });
+  if (ch?.locked) return locked(c);
   return ch ? c.json(ch) : notFound(c);
 });
 app.get('/api/imagery', (c) => { cache(c, 300); return c.json(store.imagery({ unlocked: isUnlocked(c) })); });

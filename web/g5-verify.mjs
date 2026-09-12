@@ -34,7 +34,7 @@ const out = [];
     out.push('解锁后取绝密: ' + d4.status + (d4.status === 200 ? ' ✅' : ' ❌'));
   }
   /* 5. 其他出口抽检（graph / entities / timeline / imagery / questionnaires / volumes） */
-  for (const p of ['/api/graph', '/api/entities?limit=400', '/api/timeline', '/api/imagery', '/api/questionnaires', '/api/volumes', '/api/volumes/V2', '/api/volumes/V3']) {
+  for (const p of ['/api/graph', '/api/entities?limit=400', '/api/timeline', '/api/imagery', '/api/questionnaires', '/api/volumes', '/api/volumes/B3', '/api/chapter/B3/26']) {
     const r = await g(p);
     const leak = /赵问竹|私人资料/.test(r.b) && !p.includes('V');
     out.push(`出口 ${p} → ${r.s}${leak ? ' ⚠️含敏感串' : ''}`);

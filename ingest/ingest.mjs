@@ -12,12 +12,13 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import Pinyin from 'tiny-pinyin';
+import { BOOKS, parseCatalog, parseForeshadow, volumeOfRel } from './catalog.mjs';
 
 const VAULT = process.env.MNEME_VAULT || 'D:/The Memory/The Memory';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.MNEME_DB || path.join(HERE, 'mneme.db');
 const SNAP_PATH = path.join(HERE, 'snapshot.json');
-const INGEST_VERSION = 'mneme-ingest-1.0.0';
+const INGEST_VERSION = 'mneme-ingest-1.1.0-handbook';
 
 const SYS_DIRS = new Set(['.git', '.obsidian', '.claudian', '.workbuddy', '.trash', '.smart-env', 'node_modules', 'tmp', 'scripts']);
 const PRIVACY_SEGS = new Set(['私人资料', '隐私']);
@@ -112,7 +113,7 @@ function domainOf(fmDomain, rel) {
   else if (top === '文化与审美') d = '审美档案';
   else if (top === '背景资料') d = '背景资料';
   else if (top === '项目管理') d = '项目运维';
-  else if (top === '长篇创作') d = '长篇创作';
+  else if (top === '长篇创作' || top === '百万长文写作') d = '长篇创作';
   else d = '项目运维';
   const key = `${fmDomain || '(空)'}→${d}`;
   audit.domainsFallback[key] = (audit.domainsFallback[key] || 0) + 1;
@@ -279,16 +280,10 @@ for (const f of rawFiles) {
 }
 audit.ingested = parsed.length;
 
-/* 卷归属 */
+/* 卷归属：现行六部；过往五卷设计稿并入对应部 */
 for (const d of parsed) {
-  if (d.rel.startsWith('长篇创作/章节设计-第一卷')) d.volume = 'V1';
-  else if (d.rel.startsWith('长篇创作/章节设计-第二卷')) d.volume = 'V2';
-  else if (d.rel.startsWith('长篇创作/章节设计-第三卷')) d.volume = 'V3';
-  else if (d.rel.startsWith('长篇创作/章节设计-第四卷')) d.volume = 'V4';
-  else if (d.rel.startsWith('长篇创作/章节设计-第五卷')) d.volume = 'V5';
-  else if (d.rel.startsWith('长篇创作/试写/序章')) d.volume = 'P0';
-  else if (d.rel.startsWith('长篇创作/试写/第三卷')) d.volume = 'V3';
-  else if (d.rel.startsWith('长篇创作/试写/第五卷')) d.volume = 'V5';
+  d.volume = volumeOfRel(d.rel);
+  if (/百万长文写作\/章稿\//.test(d.rel)) d.doc_type = d.doc_type || '卷级章节设计';
 }
 
 /* ---------- 4. 实体（人物页） ---------- */
@@ -353,30 +348,11 @@ const pyOf = (s) => {
   return full === abbr ? full : full + ' ' + abbr;
 };
 
-/* ---------- 6. 五卷 / 章节 / 意象 / 问卷 ---------- */
-const VOLUMES = [
-  { code: 'P0', seq: 0, name: '序章·补写的手册', years: '2026 回望', line_metaphor: '一页被补写的手册', mood: '定调宣言', word_target: '0.3万', color_token: '#8A8378' },
-  { code: 'V1', seq: 1, name: '卷一·童年与底色', years: '2007—2019 益阳', line_metaphor: '拼图（碎片拼合）', mood: '散点、白描', word_target: '12—15万', color_token: '#8FA38A' },
-  { code: 'V2', seq: 2, name: '卷二·青春与阵痛', years: '2019—2023 金海→G2204', line_metaphor: '结绳（事件成结）', mood: '编年、群像环绕', word_target: '20—24万', color_token: '#B98A5E' },
-  { code: 'V3', seq: 3, name: '卷三·爱与迷失', years: '2022—2025', line_metaphor: '省略号（未说完的话）', mood: '留白、潜台词', word_target: '18—22万', color_token: '#A86A6A' },
-  { code: 'V4', seq: 4, name: '卷四·困境与重建', years: '2024末—2026', line_metaphor: '建模（人生如系统调参）', mood: '场景/概述交替', word_target: '22—25万', color_token: '#6E8AA8' },
-  { code: 'V5', seq: 5, name: '卷五·和解与当下', years: '2026—', line_metaphor: '归家的车票（回环收束）', mood: '今昔对照', word_target: '15—18万', color_token: '#C2A46B' },
-];
-const chapters = [];
-for (const d of parsed) {
-  const volMatch = d.rel.match(/章节设计-(第[一二三四五]卷)-(.+)\.md$/);
-  if (!volMatch) continue;
-  const code = { '第一卷': 'V1', '第二卷': 'V2', '第三卷': 'V3', '第四卷': 'V4', '第五卷': 'V5' }[volMatch[1]];
-  let seq = 0;
-  for (const m of d.raw.matchAll(/^##\s*辑([一二三四五六七八九十]+)\s*(.+?)（约(\d+)章[，,]\s*([\d.]+)万字/gm)) {
-    seq++;
-    chapters.push({ volume_code: code, seq, title: `辑${m[1]} ${m[2].trim()}`, est_chapters: +m[3], est_words: m[4] + '万', doc_path: d.rel, status: '设计', is_sample: 0 });
-  }
-}
-for (const d of parsed.filter(x => x.rel.startsWith('长篇创作/试写/'))) {
-  const code = d.volume === 'P0' ? 'P0' : d.volume;
-  chapters.push({ volume_code: code, seq: 0, title: d.title, est_chapters: null, est_words: null, doc_path: d.rel, status: '样章已成', is_sample: 1 });
-}
+/* ---------- 6. 《补写的手册》六部 / 章节 / 意象 / 问卷 ---------- */
+const VOLUMES = BOOKS;
+const catalogDoc = parsed.find(d => d.rel.replace(/\\/g, '/') === '百万长文写作/目录.md')
+  || { raw: fs.readFileSync(path.join(VAULT, '百万长文写作', '目录.md'), 'utf8') };
+const chapters = parseCatalog(catalogDoc.raw);
 
 const imagery = []; const imageryOcc = [];
 const ledger = parsed.find(d => /意象台账-2026-09-06\.md$/.test(d.rel));
@@ -420,7 +396,7 @@ if (ledger) {
    四、物件史 A 区「有实证的物」逐行 → 候选。
    去重：与既有条目互为子串（归一化后 ≥2 字）即视为同一意象，不重复登记。
    全部条目均可溯源到库内原文路径，不新增任何库外素材。 */
-const VOL_CODE = { '序章': 'P0', '第一卷': 'V1', '第二卷': 'V2', '第三卷': 'V3', '第四卷': 'V4', '第五卷': 'V5' };
+const VOL_CODE = { '序章': 'P0', '第一卷': 'B1', '第二卷': 'B2', '第三卷': 'B3', '第四卷': 'B4', '第五卷': 'B6', '第一部': 'B1', '第二部': 'B2', '第三部': 'B3', '第四部': 'B4', '第五部': 'B5', '第六部': 'B6' };
 const normIm = (s) => String(s).replace(/\*\*/g, '').replace(/[（(][^）)]*[)）]/g, '').replace(/[／/]/g, '/').replace(/[""「」『』]/g, '').replace(/\s/g, '');
 const imExists = (name) => {
   const n = normIm(name);
@@ -534,30 +510,30 @@ for (const d of parsed.filter(x => /^问卷回收\/\d{4}-\d{2}-\d{2}-(V\d-)?.+�
 /* ---------- 7. 时间线（锚点 + 时代底板 + 年密度） ---------- */
 const TL = '长篇创作/时间线一致性表-2026-09-06', FY = '长篇创作/伏应回收矩阵-2026-09-06', IM = '长篇创作/意象台账-2026-09-06';
 const timeline = [
-  { year: 2007, month: 11, exact: '2007-11-05', stage: '家庭', volume: 'V1', kind: 'anchor', title: '诞生·益阳', ref: TL },
-  { year: 2011, month: null, exact: null, stage: '家庭', volume: 'V1', kind: 'anchor', title: '张家界四岁生日', ref: null },
-  { year: 2013, month: 9, exact: null, stage: '小学', volume: 'V1', kind: 'anchor', title: '入学益阳市实验小学（86班）', ref: TL },
-  { year: 2014, month: 8, exact: null, stage: '家庭', volume: 'V1', kind: 'anchor', title: '杭州两日游（母亲相册）', ref: TL },
-  { year: 2015, month: null, exact: null, stage: '家庭', volume: 'V1', kind: 'anchor', title: '第一次北京（青岛→北京连游）', ref: TL },
-  { year: 2016, month: 10, exact: null, stage: '家庭', volume: 'V1', kind: 'anchor', title: '父亲回益阳同住资阳区', ref: TL },
-  { year: 2018, month: 9, exact: null, stage: '小学', volume: 'V1', kind: 'anchor', title: '六年级·1305班', ref: TL },
-  { year: 2019, month: null, exact: null, stage: '初中', volume: 'V2', kind: 'anchor', title: '金海提前录取', ref: null },
-  { year: 2019, month: 9, exact: null, stage: '初中', volume: 'V2', kind: 'anchor', title: '入学金海1907班', ref: TL },
-  { year: 2022, month: 1, exact: '2022-01-25', stage: '初中', volume: 'V2', kind: 'anchor', title: '写给父母的信', ref: FY },
-  { year: 2022, month: 6, exact: null, stage: '初中', volume: 'V2', kind: 'anchor', title: '中考', ref: TL },
-  { year: 2022, month: 9, exact: null, stage: '高中', volume: 'V2', kind: 'anchor', title: '入学麓山国际 G2204', ref: TL },
-  { year: 2022, month: null, exact: null, stage: '高中', volume: 'V2', kind: 'anchor', title: '橘子洲烟花之夜（G2204）', ref: IM },
-  { year: 2023, month: 9, exact: null, stage: '高中', volume: 'V2', kind: 'anchor', title: '分班 G2205', ref: TL },
-  { year: 2024, month: 7, exact: null, stage: '高中', volume: 'V3', kind: 'anchor', title: '沪浙之行', ref: null },
-  { year: 2024, month: 8, exact: '2024-08-12', stage: '高中', volume: 'V4', kind: 'anchor', title: '麓山宿舍切蛋糕', ref: FY },
-  { year: 2025, month: 6, exact: '2025-06-07', stage: '高中', volume: 'V4', kind: 'anchor', title: '高考（06-07 至 06-09）', ref: TL },
-  { year: 2025, month: 8, exact: '2025-08-25', stage: '家庭', volume: 'V4', kind: 'anchor', title: '益阳站开火车（朋友圈）', ref: IM },
-  { year: 2025, month: 9, exact: null, stage: '大学', volume: 'V4', kind: 'anchor', title: '入学四川大学物理学强基（江安）', ref: TL },
-  { year: 2025, month: 10, exact: '2025-10-01', stage: '大学', volume: 'V4', kind: 'anchor', title: '归家高铁·江安的水送我归家', ref: IM },
-  { year: 2025, month: 11, exact: '2025-11-05', stage: '大学', volume: 'V4', kind: 'anchor', title: '十八岁生日', ref: TL },
-  { year: 2026, month: 5, exact: null, stage: '大学', volume: 'V5', kind: 'anchor', title: '西安之行（与母亲）', ref: null },
-  { year: 2026, month: 7, exact: '2026-07-19', stage: '大学', volume: 'V5', kind: 'anchor', title: '新加坡访学（07-19 至 07-25）', ref: TL },
-  { year: 2026, month: 9, exact: null, stage: '大学', volume: 'V5', kind: 'anchor', title: '写书当下', ref: TL },
+  { year: 2007, month: 11, exact: '2007-11-05', stage: '家庭', volume: 'B1', kind: 'anchor', title: '诞生·益阳', ref: TL },
+  { year: 2011, month: null, exact: null, stage: '家庭', volume: 'B1', kind: 'anchor', title: '张家界四岁生日', ref: null },
+  { year: 2013, month: 9, exact: null, stage: '小学', volume: 'B1', kind: 'anchor', title: '入学益阳市实验小学（86班）', ref: TL },
+  { year: 2014, month: 8, exact: null, stage: '家庭', volume: 'B1', kind: 'anchor', title: '杭州两日游（母亲相册）', ref: TL },
+  { year: 2015, month: null, exact: null, stage: '家庭', volume: 'B1', kind: 'anchor', title: '第一次北京（青岛→北京连游）', ref: TL },
+  { year: 2016, month: 10, exact: null, stage: '家庭', volume: 'B1', kind: 'anchor', title: '父亲回益阳同住资阳区', ref: TL },
+  { year: 2018, month: 9, exact: null, stage: '小学', volume: 'B1', kind: 'anchor', title: '六年级·1305班', ref: TL },
+  { year: 2019, month: null, exact: null, stage: '初中', volume: 'B2', kind: 'anchor', title: '金海提前录取', ref: null },
+  { year: 2019, month: 9, exact: null, stage: '初中', volume: 'B2', kind: 'anchor', title: '入学金海1907班', ref: TL },
+  { year: 2022, month: 1, exact: '2022-01-25', stage: '初中', volume: 'B2', kind: 'anchor', title: '写给父母的信', ref: FY },
+  { year: 2022, month: 6, exact: null, stage: '初中', volume: 'B2', kind: 'anchor', title: '中考', ref: TL },
+  { year: 2022, month: 9, exact: null, stage: '高中', volume: 'B3', kind: 'anchor', title: '入学麓山国际 G2204', ref: TL },
+  { year: 2022, month: null, exact: null, stage: '高中', volume: 'B3', kind: 'anchor', title: '橘子洲烟花之夜（G2204）', ref: IM },
+  { year: 2023, month: 9, exact: null, stage: '高中', volume: 'B4', kind: 'anchor', title: '分班 G2205', ref: TL },
+  { year: 2024, month: 7, exact: null, stage: '高中', volume: 'B4', kind: 'anchor', title: '沪浙之行', ref: null },
+  { year: 2024, month: 8, exact: '2024-08-12', stage: '高中', volume: 'B4', kind: 'anchor', title: '麓山宿舍切蛋糕', ref: FY },
+  { year: 2025, month: 6, exact: '2025-06-07', stage: '高中', volume: 'B5', kind: 'anchor', title: '高考（06-07 至 06-09）', ref: TL },
+  { year: 2025, month: 8, exact: '2025-08-25', stage: '家庭', volume: 'B5', kind: 'anchor', title: '益阳站开火车（朋友圈）', ref: IM },
+  { year: 2025, month: 9, exact: null, stage: '大学', volume: 'B6', kind: 'anchor', title: '入学四川大学物理学强基（江安）', ref: TL },
+  { year: 2025, month: 10, exact: '2025-10-01', stage: '大学', volume: 'B6', kind: 'anchor', title: '归家高铁·江安的水送我归家', ref: IM },
+  { year: 2025, month: 11, exact: '2025-11-05', stage: '大学', volume: 'B6', kind: 'anchor', title: '十八岁生日', ref: TL },
+  { year: 2026, month: 5, exact: null, stage: '大学', volume: 'B6', kind: 'anchor', title: '西安之行（与母亲）', ref: null },
+  { year: 2026, month: 7, exact: '2026-07-19', stage: '大学', volume: 'B6', kind: 'anchor', title: '新加坡访学（07-19 至 07-25）', ref: TL },
+  { year: 2026, month: 9, exact: null, stage: '大学', volume: 'B6', kind: 'anchor', title: '写书当下', ref: TL },
 ];
 for (const d of parsed.filter(x => x.domain === '背景资料')) {
   const ym = /(场景稿|年份|时代底板)/.test(d.rel) ? d.rel.match(/(20[0-2]\d)/) : d.title.match(/^(20[0-2]\d)/);
@@ -580,7 +556,7 @@ CREATE TABLE timeline_events(id INTEGER PRIMARY KEY, pinyin TEXT, doc_id INTEGER
 CREATE TABLE volumes(code TEXT PRIMARY KEY, seq INTEGER, pinyin TEXT, name TEXT, years TEXT, line_metaphor TEXT, mood TEXT, word_target TEXT, color_token TEXT);
 /* v4 · C4 伏应矩阵：来自 vault 台账「伏应回收矩阵」，等级 🔴跨卷/🟠/🟡 与中/低三档 */
 CREATE TABLE foreshadow(id INTEGER PRIMARY KEY, level TEXT, material TEXT, plant TEXT, harvest TEXT, method TEXT, status TEXT);
-CREATE TABLE chapters(id INTEGER PRIMARY KEY, volume_code TEXT, seq INTEGER, pinyin TEXT, title TEXT, est_chapters INTEGER, est_words TEXT, doc_path TEXT, status TEXT, is_sample INTEGER);
+CREATE TABLE chapters(id INTEGER PRIMARY KEY, volume_code TEXT, seq INTEGER, pinyin TEXT, title TEXT, est_chapters INTEGER, est_words TEXT, doc_path TEXT, status TEXT, is_sample INTEGER, fascicle TEXT, kind TEXT, sections TEXT, secret INTEGER);
 CREATE TABLE imagery(id INTEGER PRIMARY KEY, pinyin TEXT, name TEXT, seq INTEGER, candidate INTEGER);
 CREATE TABLE imagery_occurrences(id INTEGER PRIMARY KEY, imagery_id INTEGER, doc_id TEXT, volume_code TEXT, scene TEXT, old_meaning TEXT, new_meaning TEXT, source_note TEXT, seq INTEGER);
 CREATE TABLE questionnaires(id INTEGER PRIMARY KEY, round TEXT, respondent_label TEXT, relation_label TEXT, doc_path TEXT, answers TEXT);
@@ -601,34 +577,24 @@ const insDoc = db.prepare('INSERT INTO documents(path,title,title_pinyin,domain,
 const insEnt = db.prepare('INSERT INTO entities(pinyin,std_id,display_name,aliases,relation_group,stage,role_doc_path,mention_count,first_year,last_year) VALUES (?,?,?,?,?,?,?,?,?,?)');
 const insLink = db.prepare('INSERT INTO wikilinks(from_doc,to_target,display_text,resolved,is_private) VALUES (?,?,?,?,?)');
 const insTL = db.prepare('INSERT INTO timeline_events(pinyin,doc_id,year,month,exact_date,stage,volume,kind,title,is_public_background,ref) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
-const insCh = db.prepare('INSERT INTO chapters(volume_code,seq,pinyin,title,est_chapters,est_words,doc_path,status,is_sample) VALUES (?,?,?,?,?,?,?,?,?)');
+const insCh = db.prepare('INSERT INTO chapters(volume_code,seq,pinyin,title,est_chapters,est_words,doc_path,status,is_sample,fascicle,kind,sections,secret) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)');
 const insIm = db.prepare('INSERT INTO imagery(pinyin,name,seq,candidate) VALUES (?,?,?,?)');
 const insImOcc = db.prepare('INSERT INTO imagery_occurrences(imagery_id,doc_id,volume_code,scene,old_meaning,new_meaning,source_note,seq) VALUES (?,?,?,?,?,?,?,?)');
 const insQ = db.prepare('INSERT INTO questionnaires(round,respondent_label,relation_label,doc_path,answers) VALUES (?,?,?,?,?)');
 const insEv = db.prepare('INSERT INTO evidence_spans(doc_id,kind,snippet) VALUES (?,?,?)');
 const insYD = db.prepare('INSERT INTO year_density(year,docs) VALUES (?,?)');
 
-/* ---------- v4 · C4 伏应矩阵：解析 vault 台账三张等级表（列数不同分档处理） ---------- */
+/* 伏应：现行百万长文写作/伏应.md（1–60 章号）。旧五卷矩阵只作过往参考。 */
 {
-  const foText = fs.readFileSync(path.join(VAULT, '长篇创作', '伏应回收矩阵-2026-09-06.md'), 'utf8');
+  const foPath = path.join(VAULT, '百万长文写作', '伏应.md');
+  const foText = fs.existsSync(foPath)
+    ? fs.readFileSync(foPath, 'utf8')
+    : fs.readFileSync(path.join(VAULT, '长篇创作', '伏应回收矩阵-2026-09-06.md'), 'utf8');
   const insFo = db.prepare('INSERT INTO foreshadow(level,material,plant,harvest,method,status) VALUES (?,?,?,?,?,?)');
-  let sec = '';
-  for (const line of foText.split('\n')) {
-    if (/^## 一、高等级/.test(line)) sec = '🔴';
-    else if (/^## 二、中等级/.test(line)) sec = '青铜';
-    else if (/^## 三、低等级/.test(line)) sec = '淡';
-    else if (/^## /.test(line)) sec = '';
-    const m = line.match(/^\|\s*(\d+)\s*\|/);
-    if (!m || !sec) continue;
-    const cells = line.split('|').map(c => c.trim()).filter((_, i, arr) => i > 0 && i < arr.length - 1);
-    const material = cells[1] ?? '';
-    let plant = '', harvest = '', method = '', status = '';
-    if (sec === '🔴' && cells.length >= 6) { plant = cells[2]; harvest = cells[3]; method = cells[4]; status = cells[5]; }
-    else if (cells.length >= 5) { plant = cells[2]; harvest = cells[3]; status = cells[4]; }
-    else { plant = cells[2] ?? ''; harvest = ''; status = cells[3] ?? ''; }
-    insFo.run(sec, material, plant, harvest, method, status);
+  for (const row of parseForeshadow(foText)) {
+    insFo.run(row.level, row.material, row.plant, row.harvest, row.method, row.status);
   }
-  console.log('  伏应矩阵:', db.prepare('SELECT COUNT(*) n FROM foreshadow').get().n, '条');
+  console.log('  伏应:', db.prepare('SELECT COUNT(*) n FROM foreshadow').get().n, '条');
 }
 
 db.exec('BEGIN');
@@ -664,7 +630,7 @@ for (const d of parsed) {
 }
 for (const t of timeline) insTL.run(pyOf(t.title), t.ref ? docIdByPath.get(t.ref + '.md') || docIdByPath.get(t.ref) || null : null, t.year, t.month, t.exact, t.stage, t.volume, t.kind, t.title, t.kind === 'background' ? 1 : 0, t.ref);
 for (const v of VOLUMES) db.prepare('INSERT INTO volumes(code,seq,pinyin,name,years,line_metaphor,mood,word_target,color_token) VALUES (?,?,?,?,?,?,?,?,?)').run(v.code, v.seq, pyOf(v.name), v.name, v.years, v.line_metaphor, v.mood, v.word_target, v.color_token);
-for (const c of chapters) insCh.run(c.volume_code, c.seq, pyOf(c.title), c.title, c.est_chapters, c.est_words, c.doc_path, c.status, c.is_sample);
+for (const c of chapters) insCh.run(c.volume_code, c.seq, pyOf(c.title), c.title, c.fasc_seq || null, (c.sections || []).length ? `${c.sections.length}节` : null, c.doc_path, c.status, c.is_sample || 0, c.fascicle || '', c.kind || 'chapter', JSON.stringify(c.sections || []), c.secret || 0);
 const imIdByName = new Map();
 for (const im of imagery) { const r = insIm.run(pyOf(im.name.replace(/\*\*/g, '')), im.name, im.seq, im.candidate ? 1 : 0); imIdByName.set(im.name, Number(r.lastInsertRowid)); }
 for (const o of imageryOcc) insImOcc.run(imIdByName.get(o.imagery) || null, null, o.volume_code, o.scene, o.old_meaning, o.new_meaning, o.source_note, o.seq);
@@ -689,7 +655,8 @@ fs.writeFileSync(SNAP_PATH, JSON.stringify(snap));
 /* ---------- 10. 摘要 ---------- */
 console.log('=== ΜΝΗΜΗ M1 ETL 完成 ===');
 console.log(`documents=${parsed.length} reused=${audit.reused} entities=${entities.length} edges(resolved/unresolved/private)=${resolvedEdges}/${unresolvedEdges}/${privateEdges}`);
-console.log(`volumes=${VOLUMES.length} chapters=${chapters.length}(样章${chapters.filter(c => c.is_sample).length}) imagery=${imagery.length}(候选${imagery.filter(i => i.candidate).length}) occ=${imageryOcc.length}`);
+console.log(`volumes=${VOLUMES.length} chapters=${chapters.length}(章${chapters.filter(c => c.kind === 'chapter').length}/间${chapters.filter(c => c.kind === 'interlude').length}/附${chapters.filter(c => c.kind === 'appendix').length}/密${chapters.filter(c => c.secret).length}) imagery=${imagery.length}(候选${imagery.filter(i => i.candidate).length}) occ=${imageryOcc.length}`);
+if (chapters.filter(c => c.kind === 'chapter').length !== 60) console.warn('  ⚠ 目录正文章不是 60');
 console.log(`questionnaires=${questionnaires.length} timeline=${timeline.length}(锚点${timeline.filter(t => t.kind === 'anchor').length}) evidenceSpans=${parsed.reduce((s, d) => s + d.evidence.length, 0)} masked=${audit.masked}`);
 console.log(`excluded: private=${audit.excluded_private}(+other ${audit.excluded_private_other}) system=${audit.excluded_system} excalidraw=${audit.excluded_excalidraw} parseErrors=${audit.parseErrors}`);
 console.log(`DB: ${DB_PATH}  snapshot: ${(fs.statSync(SNAP_PATH).size / 1048576).toFixed(1)} MB`);

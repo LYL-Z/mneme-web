@@ -8,8 +8,9 @@
  * 三级可见性：
  *   public   公开层
  *   private  私密层（私人资料/ 隐私/）：未解锁时一律「不存在」→ 404，不可枚举
- *   secret   绝密档案（绝密人物全宗 + 卷二/卷三 + 非父母卷问卷）：
- *            未解锁时列表/星图/检索以锁定档出现（可见姓名/标题，不见正文）；点开 → 403（管理员密码）
+ *   secret   绝密档案（绝密人物全宗 + 赵问竹相关章节材料 + 非父母卷问卷）：
+ *            未解锁时目录/星图/检索以锁定档出现（可见章题，不见正文）；点开 → 403（管理员密码）
+ *            六部书房本身公开。不是整部上锁。
  *
  * 绝密姓名 / 口令不进仓库：优先环境变量，其次本目录 gitignore 的 privacy.local.json。
  */
@@ -27,7 +28,10 @@ export const LOCAL_PRIVACY = loadLocalPrivacy();
 
 export const SECRET_NAME = String(process.env.MNEME_SECRET_NAME || LOCAL_PRIVACY.secretName || '').trim();
 export const SECRET_DOC = String(process.env.MNEME_SECRET_DOC || LOCAL_PRIVACY.secretDoc || '').trim();
-export const SECRET_VOLUMES = ['V2', 'V3'];
+export const SECRET_VOLUMES = [];
+/** 《补写的手册》里赵问竹加密度章。目录公开，点开走绝密弹窗。 */
+export const SECRET_CHAPTER_SEQ = [23, 26, 27, 28, 29, 30, 31, 32, 33, 34, 39, 41, 48, 51, 57, 58, 59];
+const SECRET_WORK_RE = /章节设计-第[二三]卷|试写\/第三卷|第三卷样章|百万长文写作\/人物\.md|章稿\/第三部/;
 export const QUESTIONNAIRE_MARK = '问卷作答全文';
 /** 父母卷作答全文公开，其余问卷作答全文属绝密 */
 export const PARENT_LABELS = new Set(['母亲', '父亲', '妈妈', '爸爸']);
@@ -38,8 +42,12 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const sqlLit = (s) => String(s).replace(/'/g, "''");
 /** 路径是否落在私密层 */
 export const isPrivatePath = (p) => PRIV_RE.test(p || '');
-/** 文档路径是否属绝密人物全宗 */
-export const isSecretPath = (p) => !!SECRET_NAME && String(p || '').includes(SECRET_NAME);
+/** 文档路径是否属绝密人物全宗或赵纲施工稿 */
+export const isSecretPath = (p) => {
+  const s = String(p || '');
+  if (SECRET_WORK_RE.test(s)) return true;
+  return !!SECRET_NAME && s.includes(SECRET_NAME);
+};
 /** 任意字符串（display_name / 意象名 / 标题）是否命中绝密姓名 */
 export const isSecretText = (s) => !!SECRET_NAME && String(s || '').includes(SECRET_NAME);
 /** 实体是否落在私密层（std_id 或 role_doc_path 命中私密路径） */
@@ -58,14 +66,25 @@ export const isQuestionnaireEntity = (e) => {
 export const mustHideEntity = (e, unlocked) =>
   !unlocked && (isPrivateEntity(e) || isQuestionnaireEntity(e));
 
+export const isSecretChapter = (r = {}) => {
+  if (r.secret === 1 || r.secret === true) return true;
+  if (r.kind === 'interlude' || r.kind === 'appendix') return !!r.secret;
+  const seq = Number(r.seq);
+  return Number.isFinite(seq) && SECRET_CHAPTER_SEQ.includes(seq);
+};
+
 /** 列表/检索命中是否应标成锁定档（可见标题，不见正文）。
- *  时间线事件带 year+kind：只按姓名锁定，不因 volume=V2/V3 把整条河上锁。
- *  文档/卷章仍按卷二卷三整档锁定。 */
+ *  时间线事件带 year+kind：只按姓名锁定，不因部号把整条河上锁。
+ *  赵纲章节材料点开走弹窗，不从目录消失。 */
 export const isLockedStub = (r = {}) => {
   if (isSecretPath(r.path || r.doc_path || r.doc || '')) return true;
   if (isSecretText(r.title) || isSecretText(r.display_name) || isSecretText(r.name)) return true;
+  if (isSecretText(r.sn) || isSecretText(r.snippet)) return true;
   if (r.year != null && r.kind) return false;
-  return SECRET_VOLUMES.includes(String(r.volume || r.code || ''));
+  if (r.typ === 'chapter' || r.kind === 'chapter' || r.kind === 'appendix' || r.kind === 'interlude') {
+    return isSecretChapter(r);
+  }
+  return false;
 };
 
 /** 未解锁时用于 SQL 的实体过滤片段（t 为表别名，如 'e' 或 'e.'，均兼容）。配套参数见 ENTITY_GUARD_PARAMS。 */
@@ -125,13 +144,12 @@ export const scrubMeta = (meta, unlocked) => {
   return walk(meta);
 };
 
-/** 伏应台账：未解锁时不得带出绝密姓名、私密路径、卷二/卷三埋设与回收 */
-const SECRET_VOL_RE = /卷二|卷三|第二卷|第三卷|\bV2\b|\bV3\b/;
+/** 伏应台账：未解锁时不得带出绝密姓名、私密路径 */
 export const sanitizeForeshadow = (rows, unlocked) => {
   if (unlocked) return rows || [];
   return (rows || []).filter(r => {
     const blob = [r.material, r.plant, r.harvest, r.method, r.status].map(v => String(v || '')).join('\n');
-    return !isSecretText(blob) && !isPrivatePath(blob) && !SECRET_VOL_RE.test(blob);
+    return !isSecretText(blob) && !isPrivatePath(blob);
   });
 };
 

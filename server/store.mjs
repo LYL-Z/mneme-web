@@ -15,14 +15,14 @@ const DB_PATH = process.env.MNEME_DB || path.join(HERE, '..', 'ingest', 'mneme.d
    本模块只做再导出，保持既有调用方（server.mjs / 测试）的导入路径不变。 */
 import {
   SECRET_NAME, SECRET_VOLUMES, QUESTIONNAIRE_MARK, PARENT_LABELS, isParentLabel,
-  isPrivatePath, isSecretPath, isSecretText, isPrivateEntity, isSecretEntity, mustHideEntity, isLockedStub,
+  isPrivatePath, isSecretPath, isSecretText, isPrivateEntity, isSecretEntity, mustHideEntity, isLockedStub, isSecretChapter,
   entityGuardSql, ENTITY_GUARD_PARAMS, docGuardSql, timelineGuardSql, chapterGuardSql,
   imageryGuardSql, questionnaireGuardSql, scrubMeta, sanitizeGroups, sanitizeForeshadow,
 } from './privacy.mjs';
 
 export {
   SECRET_NAME, SECRET_VOLUMES, QUESTIONNAIRE_MARK, PARENT_LABELS, isParentLabel,
-  isPrivatePath, isSecretPath, isSecretText, isPrivateEntity, isSecretEntity, mustHideEntity, isLockedStub,
+  isPrivatePath, isSecretPath, isSecretText, isPrivateEntity, isSecretEntity, mustHideEntity, isLockedStub, isSecretChapter,
   entityGuardSql, ENTITY_GUARD_PARAMS, docGuardSql, timelineGuardSql, chapterGuardSql,
   imageryGuardSql, questionnaireGuardSql, scrubMeta, sanitizeGroups, sanitizeForeshadow,
 };
@@ -190,7 +190,7 @@ export const graph = ({ unlocked = false } = {}) => withDb(db => {
   return { nodes, edges, stardust, legend: { edge: '同篇共现 / wikilink 关联（非关系亲疏）', stardust: '名录留名占位（待建人物页）' } };
 });
 
-/* ---------- 五卷 ---------- */
+/* ---------- 《补写的手册》六部 ---------- */
 export const volumes = () => withDb(db =>
   db.prepare(`SELECT v.*,
     (SELECT COUNT(*) FROM chapters c WHERE c.volume_code=v.code AND c.is_sample=0) chapters,
@@ -198,7 +198,7 @@ export const volumes = () => withDb(db =>
 
 /* 卷内意象（volume_code 中文数字映射，volume()/chapter() 共用） */
 const volImagery = (db, code) => {
-  const NUM = { P0: null, V1: '一', V2: '二', V3: '三', V4: '四', V5: '五' }[code];
+  const NUM = { P0: null, B1: '一', B2: '二', B3: '三', B4: '四', B5: '五', B6: '六', V1: '一', V2: '二', V3: '三', V4: '四', V5: '五' }[code];
   return NUM
     ? db.prepare(`SELECT i.id, i.name, COUNT(*) occ FROM imagery_occurrences o
       JOIN imagery i ON i.id=o.imagery_id WHERE o.volume_code LIKE ? GROUP BY o.imagery_id ORDER BY occ DESC LIMIT 6`)
@@ -206,11 +206,13 @@ const volImagery = (db, code) => {
     : [];
 };
 
-export const volume = (code) => withDb(db => {
+export const volume = (code, { unlocked = false } = {}) => withDb(db => {
   const v = db.prepare('SELECT * FROM volumes WHERE code=?').get(code);
   if (!v) return null;
-  const chapters = db.prepare('SELECT * FROM chapters WHERE volume_code=? ORDER BY is_sample, seq').all(code);
-  const docs = db.prepare('SELECT path,title,doc_type,mtime FROM documents WHERE volume=? ORDER BY is_index, mtime').all(code);
+  const chapters = db.prepare('SELECT * FROM chapters WHERE volume_code=? ORDER BY id').all(code)
+    .map(c => ({ ...c, locked: isSecretChapter(c) }));
+  const docs = db.prepare('SELECT path,title,doc_type,mtime FROM documents WHERE volume=? ORDER BY is_index, mtime').all(code)
+    .map(d => ({ ...d, locked: !unlocked && isLockedStub(d) }));
   const pendingCollect = db.prepare(`SELECT COUNT(*) c FROM evidence_spans es JOIN documents d ON d.id=es.doc_id
     WHERE d.volume=? AND es.kind='pendingCollect'`).get(code).c;
   const foreshadow = db.prepare(`SELECT es.kind, COUNT(*) n FROM evidence_spans es JOIN documents d ON d.id=es.doc_id
@@ -219,7 +221,8 @@ export const volume = (code) => withDb(db => {
   const PERSON = "AND (e.std_id LIKE '%/人物/%' OR e.role_doc_path LIKE '%/人物/%')";
   const topPersons = db.prepare(`SELECT e.id, e.display_name, e.relation_group, COUNT(*) hits
     FROM entity_mentions m JOIN documents d ON d.id=m.doc_id JOIN entities e ON e.id=m.entity_id
-    WHERE d.volume=? ${PERSON} GROUP BY m.entity_id ORDER BY hits DESC LIMIT 10`).all(code);
+    WHERE d.volume=? ${PERSON} GROUP BY m.entity_id ORDER BY hits DESC LIMIT 10`).all(code)
+    .map(p => (!unlocked && isSecretText(p.display_name)) ? { ...p, locked: true } : p);
   const topImagery = volImagery(db, code);
   const words = db.prepare('SELECT COALESCE(SUM(LENGTH(body)),0) c FROM documents WHERE volume=?').get(code).c;
   const chapterStats = db.prepare('SELECT COALESCE(status,\'设计\') s, COUNT(*) n FROM chapters WHERE volume_code=? AND is_sample=0 GROUP BY status').all(code);
@@ -229,7 +232,29 @@ export const volume = (code) => withDb(db => {
 /* ---------- 章节材料链（v3.4 · P3 只读闭环） ----------
    辑级粒度：运行时解析卷章节设计文档正文（documents.body 已入库），
    按「## 辑X」小节切分，把【待采】【待核】归属到各辑；零 schema 变更、零 vault 写入。 */
-const CN_NUM = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+const CN_DIG = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+const CN_NUM = (() => {
+  const out = [''];
+  for (let i = 1; i <= 60; i++) {
+    if (i < 10) out[i] = CN_DIG[i];
+    else if (i === 10) out[i] = '十';
+    else if (i < 20) out[i] = '十' + CN_DIG[i - 10];
+    else if (i % 10 === 0) out[i] = CN_DIG[i / 10] + '十';
+    else out[i] = CN_DIG[Math.floor(i / 10)] + '十' + CN_DIG[i % 10];
+  }
+  return out;
+})();
+const AX_STEM = { 1: '甲', 2: '乙', 3: '丙', 4: '丁' };
+const DRAFT_OF = {
+  P0: '百万长文写作/章稿/00-读法.md',
+  B1: '百万长文写作/章稿/第一部-空格.md',
+  B2: '百万长文写作/章稿/第二部-亲爱的.md',
+  B3: '百万长文写作/章稿/第三部-桌上.md',
+  B4: '百万长文写作/章稿/第四部-西侧.md',
+  B5: '百万长文写作/章稿/第五部-十七天.md',
+  B6: '百万长文写作/章稿/第六部-保存.md',
+  AX: '百万长文写作/章稿/附录-若当时.md',
+};
 const splitSections = (body) => {
   const secs = [];
   let cur = null;
@@ -273,30 +298,32 @@ const listItems = (lines, cap = 16) => {
   return out.length ? out : pendingItems(lines, cap);
 };
 
-export const chapter = (code, seq) => withDb(db => {
+export const chapter = (code, seq, { unlocked = false } = {}) => withDb(db => {
   const ch = db.prepare('SELECT * FROM chapters WHERE volume_code=? AND seq=? LIMIT 1').get(code, seq);
   if (!ch) return null;
+  if (!unlocked && isSecretChapter(ch)) return { locked: true };
   const v = db.prepare('SELECT * FROM volumes WHERE code=?').get(code);
   if (!v) return null;
 
-  /* 正文/样章：本辑若是样章行，doc_path 即正文；另列本卷全部样章 */
   const volumeSamples = db.prepare('SELECT seq, title, doc_path FROM chapters WHERE volume_code=? AND is_sample=1 ORDER BY seq').all(code);
   const body = ch.is_sample ? { path: ch.doc_path, title: ch.title } : null;
+  const sections = J(ch.sections, []);
 
-  /* 提纲：卷级章节设计文档（design 行的 doc_path 即它；样章行按 volume 反查） */
-  const outlineRow = db.prepare("SELECT path, title, body FROM documents WHERE volume=? AND doc_type='卷级章节设计' LIMIT 1").get(code)
-    || (ch.doc_path && !ch.is_sample ? db.prepare('SELECT path, title, body FROM documents WHERE path=?').get(ch.doc_path) : null);
+  const draftPath = ch.doc_path || DRAFT_OF[code] || null;
+  const outlineRow = (draftPath ? db.prepare('SELECT path, title, body FROM documents WHERE path=?').get(draftPath) : null)
+    || db.prepare("SELECT path, title, body FROM documents WHERE volume=? AND doc_type='卷级章节设计' LIMIT 1").get(code);
   let outline = null;
   let pending = [];
   let volumePending = [];
   if (outlineRow) {
     outline = { path: outlineRow.path, title: outlineRow.title, anchor: null, excerpt: null };
     const secs = splitSections(outlineRow.body);
-    /* 本辑小节：标题前缀匹配（「辑一 纸上的家族」→「## 辑一 纸上的家族（约8章…）」），兜底「辑N 」 */
-    const cn = CN_NUM[ch.seq] || '';
-    const mine = (!ch.is_sample && ch.seq >= 1)
-      ? secs.find(s => s.head.startsWith(ch.title) || (cn && new RegExp(`^辑${cn}\\s`).test(s.head)))
-      : null;
+    const cn = CN_NUM[ch.seq] || AX_STEM[ch.seq] || '';
+    const mine = secs.find(s => {
+      if (ch.title && s.head.includes(ch.title)) return true;
+      if (cn && new RegExp(`(^|[\\s　])${cn}[　\\s]`).test(' ' + s.head)) return true;
+      return false;
+    });
     if (mine) {
       outline.anchor = mine.head;
       const intro = [];
@@ -310,26 +337,24 @@ export const chapter = (code, seq) => withDb(db => {
     }
     const volList = secs.find(s => /待采清单/.test(s.head));
     if (volList) volumePending = listItems(volList.lines);
+    if (!unlocked && outline.path && (
+      isSecretPath(outline.path) || (SECRET_NAME && String(outlineRow.body || '').includes(SECRET_NAME))
+    )) {
+      outline = { ...outline, path: null };
+    }
   }
 
-  /* 本卷草稿：核心章节完稿按标题「第X卷」归属（documents.volume 未挂，标题可判） */
-  const NUM2CODE = { '一': 'V1', '二': 'V2', '三': 'V3', '四': 'V4', '五': 'V5' };
-  const drafts = db.prepare("SELECT path, title FROM documents WHERE doc_type='核心章节完稿'").all()
-    .filter(d => { const m = d.title.match(/第([一二三四五])卷/); return m && NUM2CODE[m[1]] === code; });
-
-  /* 共享台账 + 缺口台账（全卷通用工作件；只列现行版本） */
+  const drafts = db.prepare("SELECT path, title FROM documents WHERE path LIKE '百万长文写作/核心稿/%' AND volume=? ORDER BY path").all(code);
   const ledgers = db.prepare(`SELECT path, title, doc_type FROM documents
-    WHERE path LIKE '长篇创作/%' AND doc_type IN ('运行台账','人物写作件','素材年表') ORDER BY path`).all()
-    .map(l => ({ path: l.path, title: l.title, role: l.doc_type }));
-  for (const g of db.prepare(`SELECT path, title FROM documents WHERE doc_type='素材缺口台账'
-    OR path='项目管理/全库缺口与审计总台账-2026-09-04.md'`).all()) {
-    ledgers.push({ path: g.path, title: g.title, role: g.path.startsWith('项目管理/') ? '全库现行台账' : '本卷缺口台账' });
-  }
+    WHERE path IN ('百万长文写作/伏应.md','百万长文写作/规格.md','百万长文写作/目录.md','百万长文写作/00-索引.md')
+    ORDER BY path`).all()
+    .map(l => ({ path: l.path, title: l.title, role: l.doc_type || '手册' }));
 
   return {
     chapter: {
       code, seq: ch.seq, title: ch.title, status: ch.status, is_sample: ch.is_sample,
       est_chapters: ch.est_chapters, est_words: ch.est_words,
+      kind: ch.kind || 'chapter', fascicle: ch.fascicle || '', sections,
     },
     volume: { code: v.code, name: v.name, years: v.years, line_metaphor: v.line_metaphor, mood: v.mood, color_token: v.color_token, word_target: v.word_target },
     outline,
@@ -396,7 +421,7 @@ export const doc = (rawPath, opts = {}) => withDb(db => {
     /* 私密层 → 与「不存在」不可区分（404）；绝密档案 → 明确 403 提示解锁 */
     if (d.is_private || isPrivatePath(d.path)) return { private: true };
     if (isSecretPath(d.path) || isSecretText(d.title)) return { locked: true };
-    if (SECRET_VOLUMES.includes(String(d.volume || ''))) return { locked: true };
+    if (SECRET_NAME && String(d.body || d.raw_text || '').includes(SECRET_NAME)) return { locked: true };
     /* 非父母卷的问卷作答全文属绝密（父母卷公开）——按 questionnaires.doc_path 精确匹配，
        勿用文件名模糊判断：「刘拓（父亲同事）」含「父亲」二字会误判 */
     if (String(d.path).includes(QUESTIONNAIRE_MARK)) {
@@ -482,7 +507,7 @@ export function search(q, group, opts = {}) {
       groups.timeline = db.prepare(`SELECT t.id,t.year,t.month,t.exact_date,t.stage,t.volume,t.kind,t.title FROM timeline_events t
         WHERE ${like('t.pinyin')}${tlGuard} ORDER BY t.year LIMIT 12`).all(...pv);
       const vol = db.prepare(`SELECT code,name AS title,'volume' typ FROM volumes WHERE ${like('pinyin')}${volGuard} LIMIT 8`).all(...pv);
-      const ch = db.prepare(`SELECT volume_code AS code, title,'chapter' typ, doc_path, seq, is_sample FROM chapters
+      const ch = db.prepare(`SELECT volume_code AS code, title,'chapter' typ, doc_path, seq, is_sample, secret, kind FROM chapters
         WHERE ${like('pinyin')}${chGuard} LIMIT 12`).all(...pv);
       groups.volume = vol.concat(ch);
       // 文档标题拼音：ingest 预计算 title_pinyin 列，纯 SQL 命中（server 无需拼音库）
@@ -536,7 +561,7 @@ export function search(q, group, opts = {}) {
       groups.volume = db.prepare(`SELECT code,name AS title,'volume' typ FROM volumes WHERE name LIKE ?${volGuard} LIMIT 8`).all(...terms.map(t => `%${query}%`));
       if (groups.volume.length < 8) {
         const where = terms.map(() => 'title LIKE ?').join(' AND ');
-        const ch = db.prepare(`SELECT volume_code AS code, title,'chapter' typ, doc_path, seq, is_sample FROM chapters WHERE ${where}${chGuard} LIMIT 12`).all(...terms.map(t => `%${t}%`));
+        const ch = db.prepare(`SELECT volume_code AS code, title,'chapter' typ, doc_path, seq, is_sample, secret, kind FROM chapters WHERE ${where}${chGuard} LIMIT 12`).all(...terms.map(t => `%${t}%`));
         groups.volume = groups.volume.concat(ch);
       }
     }

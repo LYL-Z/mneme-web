@@ -16,9 +16,16 @@ import { osLabel, readDevice, shellLabel, type DeviceInfo } from '../device';
  */
 export interface MnemePrefs { motion: boolean; glass: boolean; contrast: boolean }
 const P_KEY = 'mneme-prefs';
+const systemMotion = () => {
+  try { return !matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  catch { return true; }
+};
 export const readPrefs = (): MnemePrefs => {
-  try { return { motion: true, glass: true, contrast: false, ...JSON.parse(localStorage.getItem(P_KEY) || '{}') }; }
-  catch { return { motion: true, glass: true, contrast: false }; }
+  try {
+    const raw = localStorage.getItem(P_KEY);
+    if (raw) return { motion: true, glass: true, contrast: false, ...JSON.parse(raw) };
+  } catch { /* 首次 */ }
+  return { motion: systemMotion(), glass: true, contrast: false };
 };
 const applyPrefs = (p: MnemePrefs) => {
   const el = document.documentElement;
@@ -30,6 +37,8 @@ const applyPrefs = (p: MnemePrefs) => {
 /** E3 · 连续活跃 45 分钟温和提示（当日一次） */
 const useReadingTimer = (onFire: () => void) => {
   const ref = useRef({ active: 0, last: Date.now() });
+  const fire = useRef(onFire);
+  fire.current = onFire;
   useEffect(() => {
     const id = window.setInterval(() => {
       const st = ref.current;
@@ -41,10 +50,10 @@ const useReadingTimer = (onFire: () => void) => {
       const today = new Date().toDateString();
       try { if (localStorage.getItem('mneme-rest-hint') === today) return; } catch { /* 忽略 */ }
       try { localStorage.setItem('mneme-rest-hint', today); } catch { /* 忽略 */ }
-      onFire();
+      fire.current();
     }, 60_000);
     return () => clearInterval(id);
-  }, [onFire]);
+  }, []);
 };
 
 /** C6 · 本周足迹：独立计数，不被最近 48 条表截断 */
@@ -54,6 +63,7 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
   const [prefs, setPrefs] = useState<MnemePrefs>(readPrefs);
   const [panel, setPanel] = useState<'none' | 'prefs'>('none');
   const [rest, setRest] = useState(false);
+  const bgmWas = useRef(false);
   const [foot, setFoot] = useState(() => weekFootprint());
   const [vitals, setVitals] = useState(() => vitalStats());
   const [bgm, setBgm] = useState(bgmGet);
@@ -84,7 +94,18 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
     const t = window.setInterval(tick, 15_000);
     return () => clearInterval(t);
   }, []);
-  useReadingTimer(() => setRest(true));
+  useReadingTimer(() => {
+    bgmWas.current = bgmGet().on;
+    if (bgmWas.current) bgmSet({ on: false });
+    setRest(true);
+  });
+  const closeRest = (again: boolean) => {
+    setRest(false);
+    if (bgmWas.current) bgmSet({ on: true });
+    if (again) {
+      try { localStorage.removeItem('mneme-rest-hint'); } catch { /* */ }
+    }
+  };
 
   /* C5 · j/k 滚动（g / ? 由 App 统一处理） */
   useEffect(() => {
@@ -201,8 +222,11 @@ export function Wellness({ onGoSpace: _onGoSpace }: { onGoSpace: (key: string) =
 
       {rest && (
         <div className="rest-toast glass" role="status">
-          <p>已经连续阅读 <b>45 分钟</b>了——歇一会儿，回来再继续。</p>
-          <button onClick={() => setRest(false)}>好的</button>
+          <p>已经连续阅读 <b>45 分钟</b>了。背景曲已先停。歇一会儿，纸还在。</p>
+          <span className="rest-actions">
+            <button type="button" className="ghost" onClick={() => closeRest(true)}>再读一会儿</button>
+            <button type="button" onClick={() => closeRest(false)}>好的</button>
+          </span>
         </div>
       )}
     </>

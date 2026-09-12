@@ -44,10 +44,10 @@ const out = [];
   const doo = await g('/api/doc/' + encodeURIComponent('00-知识库首页.md'), cookie);
   out.push(`⑤ doc 绝密=${dz.s}${dz.s === 403 ? '✅' : '❌'} 私密=${dp.s}${dp.s === 404 ? '✅' : '❌'} 公开=${doo.s}${doo.s === 200 ? '✅' : '❌'}`);
 
-  /* volumes V2/V3 */
-  const v2 = await g('/api/volumes/V2', cookie);
-  const v3 = await g('/api/volumes/V3', cookie);
-  out.push(`⑥ volumes V2=${v2.s}${v2.s === 403 ? '✅' : '❌'} V3=${v3.s}${v3.s === 403 ? '✅' : '❌'}`);
+  const b3 = await g('/api/volumes/B3', cookie);
+  const c26 = await g('/api/chapter/B3/26', cookie);
+  const c1 = await g('/api/chapter/B1/1', cookie);
+  out.push(`⑥ 书房 B3=${b3.s}${b3.s === 200 ? '✅' : '❌'} 密章26=${c26.s}${c26.s === 403 ? '✅' : '❌'} 公开章=${c1.s}${c1.s === 200 ? '✅' : '❌'}`);
 
   /* 中文搜索稳定性 */
   const zh = [];

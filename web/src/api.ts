@@ -174,15 +174,16 @@ export function apiErrorMessage(e: unknown): string {
 export interface Chapter {
   volume_code: string; seq: number; title: string; est_chapters: number | null;
   est_words: string | null; doc_path: string | null; status: string | null; is_sample: number;
+  kind?: string; fascicle?: string; locked?: boolean; secret?: number;
 }
 
 export type VolumeDetail = Omit<Volume, 'chapters'> & {
   chapters: Chapter[];
-  docs: { path: string; title: string; doc_type: string; mtime: number }[];
+  docs: { path: string; title: string; doc_type: string; mtime: number; locked?: boolean }[];
   pendingCollect: number;
   foreshadow: { kind: string; n: number }[];
   /* v3.1 书房内容化 */
-  topPersons: { id: number; display_name: string; relation_group: string; hits: number }[];
+  topPersons: { id: number; display_name: string; relation_group: string; hits: number; locked?: boolean }[];
   topImagery: { id: number; name: string; occ: number }[];
   words: number;
   chapterStats: { s: string; n: number }[];
@@ -191,9 +192,9 @@ export type VolumeDetail = Omit<Volume, 'chapters'> & {
 /* v3.4 · P3 章节材料链 */
 export interface ChapterPending { kind: string; text: string }
 export interface ChapterDetail {
-  chapter: { code: string; seq: number; title: string; status: string | null; is_sample: number; est_chapters: number | null; est_words: string | null };
+  chapter: { code: string; seq: number; title: string; status: string | null; is_sample: number; est_chapters: number | null; est_words: string | null; kind?: string; fascicle?: string; sections?: string[] };
   volume: { code: string; name: string; years: string; line_metaphor: string; mood: string; color_token: string; word_target: string };
-  outline: { path: string; title: string; anchor: string | null; excerpt: string | null } | null;
+  outline: { path: string | null; title: string; anchor: string | null; excerpt: string | null } | null;
   body: { path: string; title: string } | null;
   volumeSamples: { seq: number; title: string; doc_path: string }[];
   drafts: { path: string; title: string }[];

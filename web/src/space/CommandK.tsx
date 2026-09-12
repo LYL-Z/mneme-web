@@ -34,7 +34,7 @@ const CMDS: { id: string; label: string; hint: string }[] = [
   { id: 'stars', label: '去记忆恒星', hint: 'g h' },
   { id: 'river', label: '去时间之河', hint: 'g r' },
   { id: 'graph', label: '去人物星图', hint: 'g p' },
-  { id: 'study', label: '去五卷书房', hint: 'g y' },
+  { id: 'study', label: '去书房', hint: 'g y' },
   { id: 'themes', label: '去主题域', hint: 'g t' },
   { id: 'voices', label: '去他者之声', hint: 'g v' },
   { id: 'museum', label: '去意象博物馆', hint: 'g m' },
@@ -204,13 +204,13 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
     (groups.imagery ?? []).slice(0, 2).forEach(i => flat.push(i.locked
       ? { t: 'gate', label: `意象·${i.name}（绝密）` }
       : { t: 'imagery', id: i.id, label: `意象·${i.name}` }));
-    (groups.volume ?? []).slice(0, 3).forEach(v => flat.push(v.locked || v.code === 'V2' || v.code === 'V3'
-      ? { t: 'gate', label: `${v.typ === 'chapter' ? '章节' : '卷'}·${v.title}（绝密）` }
+    (groups.volume ?? []).slice(0, 3).forEach(v => flat.push(v.locked
+      ? { t: 'gate', label: `${v.typ === 'chapter' ? '章节' : '部'}·${v.title}（绝密）` }
       : {
         t: 'chapter', code: v.code,
         seq: v.typ === 'chapter' ? (v.seq ?? null) : null,
         docPath: v.doc_path ?? null,
-        label: `${v.typ === 'chapter' ? '章节' : '卷'}·${v.title}`,
+        label: `${v.typ === 'chapter' ? '章节' : '部'}·${v.title}`,
       }));
     (groups.questionnaire ?? []).slice(0, 2).forEach(qq => flat.push(qq.locked || !qq.doc_path
       ? { t: 'gate', label: qq.respondent_label ? `问卷·${qq.respondent_label}（绝密）` : '绝密问卷' }
@@ -253,7 +253,7 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
     else if (a.t === 'chapter') {
       if (a.seq != null) onOpenChapter(a.code, a.seq);      // 章节命中 → 直达材料链面板
       else if (a.docPath) onOpenDoc(a.docPath, undefined, undefined, hitQ);
-      else onOpenVolume(a.code);                            // 卷命中 → 五卷书房开卷
+      else onOpenVolume(a.code);                            // 部命中 → 书房开门
     }
     else if (a.t === 'questionnaire') onOpenDoc(a.docPath, undefined, undefined, hitQ);
   };
@@ -448,12 +448,12 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
               {groups?.volume?.slice(0, 3).map((v, i2) => {
                 idx += 1;
                 const isCh = v.typ === 'chapter';
-                if (v.locked || v.code === 'V2' || v.code === 'V3') {
+                if (v.locked) {
                   return (
                     <button key={`vo${v.typ}-${v.code}-${i2}`} id={`ck-opt-${idx}`} role="option" aria-selected={cursor === idx}
                       className={`ck-item ${cursor === idx ? 'on' : ''}`}
                       onMouseEnter={() => setCursor(idx)} onClick={() => run({ t: 'gate', label: v.title })}>
-                      <b>{isCh ? '章节' : '卷'}·{v.title}</b><span>绝密档案 · 需管理员密码</span>
+                      <b>{isCh ? '章节' : '部'}·{v.title}</b><span>绝密档案 · 需管理员密码</span>
                     </button>
                   );
                 }
@@ -465,7 +465,7 @@ export function CommandK({ open, onClose, onOpenDoc, onOpenPerson, onOpenRiver, 
                 return (
                   <CkHit key={`vo${v.typ}-${v.code}-${i2}`} href={href} ix={idx} on={cursor === idx}
                     onHover={() => setCursor(idx)} onPick={() => run({ t: 'chapter', code: v.code, seq: isCh ? (v.seq ?? null) : null, docPath: v.doc_path ?? null, label: v.title })}>
-                    <b>{isCh ? '章节' : '卷'}·{v.title}</b><span>{isCh ? '开材料链' : '开卷 · 五卷书房'}</span>
+                    <b>{isCh ? '章节' : '部'}·{v.title}</b><span>{isCh ? '开材料链' : '开部 · 书房'}</span>
                   </CkHit>
                 );
               })}

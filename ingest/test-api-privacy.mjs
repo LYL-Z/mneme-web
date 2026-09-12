@@ -258,8 +258,10 @@ async function main() {
   /* ---------- 8. 文档出口（三级状态码） ---------- */
   const docCases = [
     ['私密层文档 → 404', '/api/doc/' + encodeURIComponent('私人资料/人物/刘弈帆/刘弈帆人物多维度特征全分析-用户原文-2026-08-13（私密）.md'), 404],
-    ['卷二章节设计 → 403', '/api/doc/' + encodeURIComponent('长篇创作/章节设计-第二卷-青春与阵痛.md'), 403],
+    ['卷二旧设计稿 → 403', '/api/doc/' + encodeURIComponent('长篇创作/章节设计-第二卷-青春与阵痛.md'), 403],
     ['卷三试写样章 → 403', '/api/doc/' + encodeURIComponent('长篇创作/试写/第三卷样章-烟花与婚礼进行曲.md'), 403],
+    ['第三部章稿 → 403', '/api/doc/' + encodeURIComponent('百万长文写作/章稿/第三部-桌上.md'), 403],
+    ['人物调度页 → 403', '/api/doc/' + encodeURIComponent('百万长文写作/人物.md'), 403],
     ['非父母卷问卷 → 403', '/api/doc/' + encodeURIComponent('问卷回收/2026-09-08-V3-向睿馨问卷作答全文.md'), 403],
     ['路径穿越 → 404', '/api/doc/' + encodeURIComponent('../../etc/passwd'), 404],
   ];
@@ -285,22 +287,23 @@ async function main() {
     ok('GET /api/imagery/26（绝密意象）→ 403', one.status === 403, `得到 ${one.status}`);
   }
   {
-    const v = await api('/api/volumes/V2');
-    ok('GET /api/volumes/V2 → 403', v.status === 403, `得到 ${v.status}`);
-    const c = await api('/api/chapter/V3/1');
-    ok('GET /api/chapter/V3/1 → 403', c.status === 403, `得到 ${c.status}`);
+    const v = await api('/api/volumes/B3');
+    const chs = Array.isArray(v.body?.chapters) ? v.body.chapters : [];
+    const lockedCh = chs.filter(c => c.locked);
+    ok('GET /api/volumes/B3 → 200（目录公开）', v.status === 200, `得到 ${v.status}`);
+    ok('GET /api/volumes/B3 密章带 lock 标、标题仍在', v.status === 200 && lockedCh.length > 0 && lockedCh.every(c => c.title), `(${lockedCh.length} 题)`);
+    const openCh = await api('/api/chapter/B1/1');
+    ok('GET /api/chapter/B1/1（公开章）→ 200', openCh.status === 200, `得到 ${openCh.status}`);
+    const secretCh = await api('/api/chapter/B3/26');
+    ok('GET /api/chapter/B3/26（密章）→ 403', secretCh.status === 403, `得到 ${secretCh.status}`);
   }
 
-  /* ---------- 9b. 伏应矩阵（未解锁不得带出绝密姓名 / 卷二卷三） ---------- */
+  /* ---------- 9b. 伏应矩阵（未解锁不得带出绝密姓名） ---------- */
   {
     const { status, body } = await api('/api/foreshadow');
     const rows = Array.isArray(body?.rows) ? body.rows : [];
     const blob = JSON.stringify(rows);
-    const volHit = rows.filter(r => /卷二|卷三|第二卷|第三卷|\bV2\b|\bV3\b/.test(
-      [r.material, r.plant, r.harvest, r.method, r.status].map(v => String(v || '')).join('\n'),
-    ));
     ok('GET /api/foreshadow 无绝密姓名', status === 200 && (!SECRET_NAME || !blob.includes(SECRET_NAME)), `(${rows.length} 条)`);
-    ok('GET /api/foreshadow 无卷二卷三埋设/回收', volHit.length === 0, volHit.length ? `(漏 ${volHit.length} 条)` : '');
   }
 
   /* ---------- 9c. 待核队列（未解锁不得带出绝密姓名 / 私密路径） ---------- */

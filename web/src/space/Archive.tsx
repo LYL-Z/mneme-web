@@ -483,13 +483,18 @@ function ReaderSettings({ cfg, onChange }: { cfg: ReaderCfg; onChange: (c: Reade
 /* ---------------- 次栏选择器（双栏对照用） ---------------- */
 
 const VOL_DESIGN: Record<string, string> = {
-  V1: '长篇创作/章节设计-第一卷-童年与底色.md',
-  V2: '长篇创作/章节设计-第二卷-青春与阵痛.md',
-  V3: '长篇创作/章节设计-第三卷-爱与迷失.md',
-  V4: '长篇创作/章节设计-第四卷-困境与重建.md',
-  V5: '长篇创作/章节设计-第五卷-和解与当下.md',
+  P0: '百万长文写作/章稿/00-读法.md',
+  B1: '百万长文写作/章稿/第一部-空格.md',
+  B2: '百万长文写作/章稿/第二部-亲爱的.md',
+  B3: '百万长文写作/章稿/第三部-桌上.md',
+  B4: '百万长文写作/章稿/第四部-西侧.md',
+  B5: '百万长文写作/章稿/第五部-十七天.md',
+  B6: '百万长文写作/章稿/第六部-保存.md',
+  AX: '百万长文写作/章稿/附录-若当时.md',
 };
-const VOL_NAME: Record<string, string> = { V1: '一卷', V2: '二卷', V3: '三卷', V4: '四卷', V5: '五卷' };
+const VOL_NAME: Record<string, string> = {
+  P0: '序', B1: '空格', B2: '亲爱的', B3: '桌上', B4: '西侧', B5: '十七天', B6: '保存', AX: '附录',
+};
 
 function SecPicker({ onPick, suggested }: { onPick: (path: string) => void; suggested?: { path: string; label: string } | null }) {
   const [q, setQ] = useState('');
@@ -510,7 +515,7 @@ function SecPicker({ onPick, suggested }: { onPick: (path: string) => void; sugg
       <h2>对照阅读 · 选择右栏文档</h2>
       {suggested && isPublicPath(suggested.path) && (
         <button className="ar-pick-sug" onClick={() => onPick(suggested.path)} title={suggested.path}>
-          <b>本卷大纲 · {suggested.label}</b>
+          <b>本部章稿 · {suggested.label}</b>
           <span>默认对照：章节设计 ⇄ 原文逐段核对</span>
         </button>
       )}
@@ -708,7 +713,7 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
   const volDesign = useMemo(() => {
     const v = meta?.volume ?? null;
     const k = v && VOL_DESIGN[v] ? v : null;
-    return k ? { path: VOL_DESIGN[k], label: `${VOL_NAME[k]} · 章节设计` } : null;
+    return k ? { path: VOL_DESIGN[k], label: `${VOL_NAME[k]} · 章稿` } : null;
   }, [meta]);
   const localMarks = useMemo(() => getHighlights(path), [path, hlTick]);
   useEffect(() => {
@@ -992,7 +997,7 @@ export function Archive({ path, anchor, evidenceId, query, onNavigate, onOpenPer
                 <h2>所属</h2>
                 <div className="ar-chips">
                   {meta.volume && onOpenVolume && (
-                    <button className="ar-chip" onClick={() => onOpenVolume(meta.volume as string)} title="在 Σ4 五卷书房打开">卷 {meta.volume}</button>
+                    <button className="ar-chip" onClick={() => onOpenVolume(meta.volume as string)} title="在书房打开">部 {meta.volume}</button>
                   )}
                   {meta.domain && onOpenDomain && (
                     <button className="ar-chip" onClick={() => onOpenDomain(meta.domain)} title="在 Σ5 主题域打开">域 {meta.domain}</button>

@@ -13,7 +13,7 @@
   --bronze-bright: #C7A45E;
   --aegean: #274B6E;
   --aegean-soft: #5B7A99;
-  --vol1: #8FA38A; --vol2: #B98A5E; --vol3: #A86A6A; --vol4: #6E8AA8; --vol5: #C2A46B;
+  --vol0: #8A8378; --vol1: #8FA38A; --vol2: #B98A5E; --vol3: #A86A6A; --vol4: #6E8AA8; --vol5: #C2A46B; --vol6: #7A8F7A; --vol-ax: #9A8B7A;
   --night: #14120E;
   --night-soft: #1E1B16;
   --danger: #C07A6A;
@@ -74,7 +74,7 @@
 
 /* ============ 墨夜主题（data-theme="night"，M6） ============
    暖黑夜幕 + 暖白墨字反转；青铜金/爱琴蓝提亮一档；
-   玻璃改暗玻璃，纸纹退为极微光。五卷色为中明度，暗底可读，保持不动。 */
+   玻璃改暗玻璃，纸纹退为极微光。六部色为中明度，暗底可读，保持不动。 */
 [data-theme="night"] {
   color-scheme: dark;
   --paper: #16140F;

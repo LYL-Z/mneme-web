@@ -1,6 +1,6 @@
 import fs from 'fs';
 const BASE = process.argv[2] || 'https://mneme-309301-9-1455680663.sh.run.tcloudbase.com';
-const PW = (() => { try { return JSON.parse(fs.readFileSync('server/privacy.local.json', 'utf8')).secretPassword; } catch { return 'L0826'; } })();
+const PW = process.env.MNEME_SECRET || (() => { try { return JSON.parse(fs.readFileSync('server/privacy.local.json', 'utf8')).secretPassword || ''; } catch { return ''; } })();
 const SECRET_DOC = '初中/素材/成长记录/赵问竹2021-2022开福区优秀学生干部.md';
 const PRIV_DOC = '私人资料/人物/刘佑林/刘佑林朋友圈148则完整转录与索引-2018至2024（私密）.md';
 const NONPARENT_Q = '问卷回收/2026-09-05-刘弈帆问卷作答全文.md';
@@ -19,10 +19,10 @@ const out = [];
 
   /* ③ 绝密正文：未解锁一律 403（多路由） */
   const s1 = await g('/api/doc/' + encodeURIComponent(SECRET_DOC));
-  const s2 = await g('/api/volumes/V2');
-  const s3 = await g('/api/volumes/V3');
-  const s4 = await g('/api/chapter/V3/1');
-  out.push(`③ 绝密正文门禁: doc=${s1.s}${s1.s === 403 ? '✅' : '❌'} V2=${s2.s}${s2.s === 403 ? '✅' : '❌'} V3=${s3.s}${s3.s === 403 ? '✅' : '❌'} chapter=${s4.s}${s4.s === 403 ? '✅' : '❌'}`);
+  const s2 = await g('/api/volumes/B3');
+  const s3 = await g('/api/chapter/B1/1');
+  const s4 = await g('/api/chapter/B3/26');
+  out.push(`③ 绝密正文门禁: doc=${s1.s}${s1.s === 403 ? '✅' : '❌'} B3目录=${s2.s}${s2.s === 200 ? '✅' : '❌'} 公开章=${s3.s}${s3.s === 200 ? '✅' : '❌'} 密章=${s4.s}${s4.s === 403 ? '✅' : '❌'}`);
 
   /* ④ 私密：404 + 不可枚举 */
   const p1 = await g('/api/doc/' + encodeURIComponent(PRIV_DOC));

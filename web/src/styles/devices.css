@@ -47,7 +47,10 @@ html[data-pointer="coarse"] .more-item,
 html[data-pointer="coarse"] .ar-tool,
 html[data-pointer="coarse"] .top-search,
 html[data-pointer="coarse"] .nav-logout,
-html[data-pointer="coarse"] .top-vault {
+html[data-pointer="coarse"] .top-vault,
+html[data-pointer="coarse"] .study-door,
+html[data-pointer="coarse"] .study-chap,
+html[data-pointer="coarse"] .vol {
   min-height: 44px;
 }
 html[data-pointer="coarse"] input,
@@ -228,6 +231,20 @@ html[data-shell="phone"] .th { padding: 8px 14px 40px; }
 html[data-shell="phone"] .study-detail,
 html[data-shell="phone"] .mu-detail,
 html[data-shell="phone"] .th-detail { padding: 18px 16px 20px; }
+html[data-shell="phone"] .study-doors { gap: 8px; }
+html[data-shell="phone"] .study-door { padding: 14px 12px 12px; }
+html[data-shell="phone"] .study-door b { font-size: var(--fs-s); letter-spacing: 0.03em; }
+html[data-shell="phone"] .study-catalog { max-width: none; }
+html[data-shell="phone"] .study-chap-sec { display: none; }
+html[data-shell="phone"] .st-orbitry {
+  width: 320px; height: 320px;
+  transform: scale(0.72);
+  transform-origin: center center;
+  margin-block: -46px;
+}
+html[data-shell="phone"] .st-volumes { grid-template-columns: 1fr; }
+html[data-shell="phone"] .rest-toast { flex-direction: column; align-items: stretch; text-align: center; }
+html[data-shell="phone"] .rest-actions { justify-content: center; }
 html[data-shell="phone"] .lh-panel { grid-template-columns: minmax(0, 1fr); }
 html[data-shell="phone"] .vo-grid { grid-template-columns: 1fr; }
 html[data-shell="phone"] .cp {
@@ -301,7 +318,12 @@ html[data-shell="tablet"] .ck {
 html[data-shell="tablet"] .ck-foot { display: none; }
 html[data-shell="tablet"] .st { padding: 20px 28px 72px; gap: 28px; }
 html[data-shell="tablet"] .st-hero { min-height: min(380px, 42vw); }
-html[data-shell="tablet"] .st-orbitry { width: 260px; height: 260px; }
+html[data-shell="tablet"] .st-orbitry {
+  width: 320px; height: 320px;
+  transform: scale(0.82);
+  transform-origin: center center;
+  margin-block: -28px;
+}
 html[data-shell="tablet"] .st-title { font-size: clamp(30px, 4vw, 44px); }
 html[data-shell="tablet"] .study,
 html[data-shell="tablet"] .mu,

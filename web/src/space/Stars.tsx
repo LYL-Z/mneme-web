@@ -8,7 +8,7 @@ import { getLastChapter, getRecentDocs, timeAgo } from '../history';
 
 /**
  * Σ1 记忆恒星 · 大厅
- * 中央主恒星（刘佑林）+ 五卷轨道星团 + 全库真实统计 + 数字丰碑展板。
+ * 中央主恒星（刘佑林）+ 六部轨道 + 全库真实统计 + 数字丰碑展板。
  * 完整人物星图在 Σ3——此处是进入各空间的门厅。
  */
 /** 数字丰碑 · 库藏地位口径（用户口径 + 站内实时数并存；不改动知识库内容）
@@ -103,7 +103,7 @@ function Workbench({ overview, onOpenChapter, onOpenDoc, onEnterLighthouse }: {
         ) : (
           <div className="wb-continue idle surface">
             <span className="wb-label">继续上次章节</span>
-            <p className="wb-none">尚无章节轨迹——五卷书房的每一辑都开着材料链的门。</p>
+            <p className="wb-none">尚无章节轨迹——书房的每一章都开着材料链的门。</p>
           </div>
         )}
         <div className="wb-recent surface">
@@ -129,7 +129,7 @@ function Workbench({ overview, onOpenChapter, onOpenDoc, onEnterLighthouse }: {
   );
 }
 
-export function Stars({ overview, theme, onEnterRiver, onOpenChapter, onOpenDoc, onEnterLighthouse, onOpenPerson }: {
+export function Stars({ overview, theme, onEnterRiver, onOpenChapter, onOpenDoc, onEnterLighthouse, onOpenPerson, onOpenVolume }: {
   overview: Overview | null;
   theme: 'paper' | 'night';
   onEnterRiver: () => void;
@@ -137,6 +137,7 @@ export function Stars({ overview, theme, onEnterRiver, onOpenChapter, onOpenDoc,
   onOpenDoc: (path: string) => void;
   onEnterLighthouse: () => void;
   onOpenPerson: (id: number) => void;
+  onOpenVolume: (code: string) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -177,9 +178,13 @@ export function Stars({ overview, theme, onEnterRiver, onOpenChapter, onOpenDoc,
       <div className="st-orbitry st-atom" aria-hidden>
         <div className="star-core" />
         <div className="star-halo" />
-        {[92, 152, 212, 272].map((d, i) => (
-          <div key={d} className={`orbit orbit-${i}`} style={{ width: d, height: d }}>
-            <span className="orbit-star" style={{ background: ['var(--vol1)', 'var(--vol2)', 'var(--vol3)', 'var(--vol4)', 'var(--vol5)'][i] }} />
+        {[88, 128, 168, 208, 248, 288].map((d, i) => (
+          <div
+            key={d}
+            className={`orbit orbit-${i}`}
+            style={{ width: d, height: d, ['--from' as string]: `${i * 51}deg` }}
+          >
+            <span className="orbit-star" style={{ background: ['var(--vol1)', 'var(--vol2)', 'var(--vol3)', 'var(--vol4)', 'var(--vol5)', 'var(--vol6)'][i] }} />
           </div>
         ))}
       </div>
@@ -206,14 +211,20 @@ export function Stars({ overview, theme, onEnterRiver, onOpenChapter, onOpenDoc,
       <Monument stardust={overview?.stardust ?? null} docs={overview?.docs ?? null} />
 
       <section className="st-volumes st-atom">
-        {(overview?.volumes ?? []).slice(0, 5).map(v => (
-          <div key={v.code} className="vol surface" style={{ ['--vc' as string]: v.color_token }}>
+        {(overview?.volumes ?? []).map(v => (
+          <button
+            key={v.code}
+            type="button"
+            className="vol surface"
+            style={{ ['--vc' as string]: v.color_token }}
+            onClick={() => onOpenVolume(v.code)}
+          >
             <i className="vol-dot" />
             <div>
               <b>{v.name}</b>
-              <span>{v.years} · {v.line_metaphor} · {v.chapters}章</span>
+              <span>{v.years} · {v.line_metaphor} · {v.chapters} 题</span>
             </div>
-          </div>
+          </button>
         ))}
       </section>
 

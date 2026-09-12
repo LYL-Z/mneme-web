@@ -211,13 +211,11 @@
 }
 .sg-cancel:hover { color: var(--bronze); }
 
-/* 卷二卷三门卡：绝密标识 */
+/* 密章锁标：目录可见，不整扇门上锁 */
 .study-lock {
   display: inline-block; margin-left: 7px; font-style: normal; font-size: var(--fs-xs);
   filter: saturate(0.8);
 }
-.study-door[data-secret] { border-style: dashed; }
-.study-door[data-secret] em { opacity: 0.75; }
 /* v3.2 · 序章可跳过 */
 .gate-skip {
   position: fixed; right: 26px; bottom: 24px; z-index: 101;
@@ -238,7 +236,7 @@
 .st-title { margin: 0; font-size: clamp(34px, 5vw, 52px); font-weight: 600; letter-spacing: 0.14em; }
 .st-quote { margin: 16px 0 0; color: var(--ink-faint); font-size: var(--fs-m); line-height: 2; }
 
-.st-orbitry { position: relative; width: 300px; height: 300px; }
+.st-orbitry { position: relative; width: 320px; height: 320px; }
 .star-core {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: 34px; height: 34px; border-radius: 50%;
@@ -260,7 +258,12 @@
 .orbit-1 { animation-duration: 34s; animation-direction: reverse; }
 .orbit-2 { animation-duration: 46s; }
 .orbit-3 { animation-duration: 60s; animation-direction: reverse; }
-@keyframes spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+.orbit-4 { animation-duration: 72s; }
+.orbit-5 { animation-duration: 88s; animation-direction: reverse; }
+@keyframes spin {
+  from { transform: translate(-50%, -50%) rotate(var(--from, 0deg)); }
+  to { transform: translate(-50%, -50%) rotate(calc(var(--from, 0deg) + 360deg)); }
+}
 .orbit-star {
   position: absolute; top: -4px; left: 50%; margin-left: -4px;
   width: 8px; height: 8px; border-radius: 50%;
@@ -276,11 +279,15 @@
 [data-theme="night"] .stat b { text-shadow: 0 0 14px color-mix(in srgb, var(--aegean) 35%, transparent); }
 .stat span { font-size: var(--fs-s); color: var(--ink-faint); letter-spacing: 0.08em; }
 
-.st-volumes { display: flex; flex-direction: column; gap: 10px; width: min(560px, 100%); }
+.st-volumes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: min(640px, 100%); }
 .vol {
   display: flex; align-items: center; gap: 14px; padding: 13px 18px;
-  border-radius: var(--r-md);
+  border-radius: var(--r-md); width: 100%; text-align: left;
+  border: none; cursor: pointer; font: inherit; color: inherit;
+  transition: transform var(--dur-1) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
 }
+.vol:hover { transform: translateY(-2px); }
+.vol:focus-visible { outline: 2px solid var(--vc); outline-offset: 2px; }
 .vol-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--vc); box-shadow: 0 0 8px var(--vc); }
 .vol b { font-size: var(--fs-m); letter-spacing: 0.04em; }
 .vol span { display: block; font-size: var(--fs-s); color: var(--ink-faint); margin-top: 2px; }
@@ -1133,13 +1140,15 @@ a.wl:hover { color: var(--bronze); border-color: var(--bronze); }
 .wb-chip.dim:hover { border-color: var(--glass-border); color: var(--ink-faint); }
 @media (max-width: 960px) { .wb-main { grid-template-columns: minmax(0, 1fr); } }
 
-/* ============ Σ4 五卷书房 ============ */
+/* ============ Σ4 书房 · 《补写的手册》 ============ */
 .study { max-width: 1240px; margin: 0 auto; padding: 10px 32px 90px; }
 .study-head { padding: 6px 4px 22px; }
 .study-kicker { font-size: var(--fs-s); color: var(--bronze); margin: 0 0 6px; }
 .study-head :is(h1, h2) { margin: 0; font-size: var(--fs-display); letter-spacing: 0.16em; font-weight: 600; }
-.study-sub { margin: 8px 0 0; font-size: var(--fs-r); color: var(--ink-faint); }
-.study-doors { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+.study-sub { margin: 8px 0 0; font-size: var(--fs-r); color: var(--ink-faint); max-width: 42em; line-height: 1.8; }
+.study-doors { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 1100px) { .study-doors { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .study-doors { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } }
 .study-door {
   display: flex; flex-direction: column; align-items: flex-start; gap: 7px;
   padding: 20px 18px 16px; border: 1px solid var(--glass-border); cursor: pointer;
@@ -1147,6 +1156,7 @@ a.wl:hover { color: var(--bronze); border-color: var(--bronze); }
   transition: transform var(--dur-2) var(--spring), border-color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
 }
 .study-door:hover { transform: translateY(-4px); border-color: var(--vc); box-shadow: 0 12px 30px color-mix(in srgb, var(--ink) 10%, transparent); }
+.study-door:focus-visible { outline: 2px solid var(--vc); outline-offset: 3px; }
 .study-door.on { border-color: var(--vc); box-shadow: 0 0 0 1px var(--vc) inset; }
 .study-door-tex { color: var(--vc); width: 100%; }
 .study-tex { width: 100%; height: 24px; display: block; }
@@ -1167,6 +1177,21 @@ a.wl:hover { color: var(--bronze); border-color: var(--bronze); }
 .study-ev-tag i { font-style: normal; font-size: var(--fs-xs); color: var(--bronze); }
 .study-pend { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 .study-chapters { list-style: none; margin: 20px 0 0; padding: 0; columns: 2; column-gap: 40px; }
+.study-catalog { columns: 1; max-width: 720px; }
+.study-fasc {
+  margin: 22px 0 4px; padding: 0; border-top: none;
+  font-size: var(--fs-xs); letter-spacing: 0.22em; color: var(--vc, var(--bronze));
+  text-transform: none; list-style: none;
+}
+.study-fasc span { display: block; padding: 8px 4px 2px; border-bottom: 1px solid color-mix(in srgb, var(--vc, var(--bronze)) 35%, transparent); }
+.study-chapters li.study-inter {
+  font-style: italic; opacity: 0.84; border-top-style: dotted;
+  margin-top: 6px;
+}
+.study-chapters li.study-inter i { letter-spacing: 0.28em; min-width: 28px; }
+.study-chapters li.study-inter .study-chap > span:first-child { letter-spacing: 0.14em; }
+.study-chapters li.locked .study-chap > span:first-child { letter-spacing: 0.04em; }
+@media (max-width: 720px) { .study-chapters { columns: 1; } }
 .study-chapters li {
   display: flex; align-items: baseline; gap: 10px; padding: 6.5px 4px;
   break-inside: avoid; border-top: 1px dashed var(--glass-border); font-size: var(--fs-r);
@@ -1183,10 +1208,15 @@ a.wl:hover { color: var(--bronze); border-color: var(--bronze); }
   transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out), transform var(--dur-1) var(--spring);
 }
 .study-chap:hover { background: color-mix(in srgb, var(--vc, var(--bronze)) 10%, transparent); }
+.study-chap:focus-visible { outline: none; background: color-mix(in srgb, var(--vc, var(--bronze)) 14%, transparent); }
 .study-chap:active { transform: scale(0.985); }
 .study-chap > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .study-chap .study-chap-sec { color: var(--ink-faint); white-space: nowrap; }
 .study-chap:hover .study-chap-sec { color: var(--vc, var(--bronze)); }
+.study-chapters li.last {
+  background: color-mix(in srgb, var(--vc, var(--bronze)) 7%, transparent);
+  border-radius: var(--r-sm);
+}
 .study-chapters li.last .study-chap,
 .study-chap.last { box-shadow: inset 2px 0 0 var(--vc, var(--bronze)); }
 .study-status { color: var(--ink-faint); }
@@ -1221,6 +1251,9 @@ a.wl:hover { color: var(--bronze); border-color: var(--bronze); }
 .cp-miss .greek { margin: 0 0 10px; font-size: var(--fs-r); color: var(--ink-faint); }
 .cp-miss :is(h1,h4) { margin: 0 0 8px; font-size: var(--fs-l); }
 .cp-miss p { margin: 0; font-size: var(--fs-r); color: var(--ink-faint); line-height: 1.8; }
+.cp-secs { list-style: none; margin: 10px 0 0; padding: 0; columns: 2; column-gap: 18px; }
+.cp-secs li { break-inside: avoid; padding: 3px 0; font-size: var(--fs-s); color: var(--ink-soft); letter-spacing: 0.06em; }
+.cp-secs li::before { content: '· '; color: var(--vc, var(--bronze)); }
 
 .cp-head { padding: 22px 24px 14px; border-bottom: 1px solid var(--glass-border); }
 .cp-vol { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: var(--fs-s); color: var(--vc, var(--bronze)); letter-spacing: 0.05em; }
@@ -2034,13 +2067,18 @@ body { overscroll-behavior: none; }
 .keys-row em { font-style: normal; margin-right: 8px; white-space: nowrap; }
 .rest-toast {
   position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%); z-index: 90;
-  display: flex; align-items: center; gap: 16px; padding: 14px 20px;
-  border-radius: var(--r-md); font-size: var(--fs-r); max-width: min(520px, 92vw);
+  display: flex; align-items: center; flex-wrap: wrap; justify-content: center;
+  gap: 16px; padding: 14px 20px;
+  border-radius: var(--r-md); font-size: var(--fs-r); max-width: min(560px, 92vw);
 }
-.rest-toast p { margin: 0; }
+.rest-toast p { margin: 0; line-height: 1.7; }
+.rest-actions { display: flex; gap: 8px; flex: none; }
 .rest-toast button {
   border: none; cursor: pointer; padding: 7px 14px; border-radius: 999px;
   background: var(--bronze); color: #fff; font-size: var(--fs-s); white-space: nowrap;
+}
+.rest-toast button.ghost {
+  background: transparent; color: var(--ink-soft); border: 1px solid var(--glass-border);
 }
 
 /* ============ v4 · 背景曲控件（右下角液态玻璃；全设备适配） ============ */
@@ -2263,6 +2301,9 @@ html.no-motion .imm-vanish { animation: none; opacity: 0; transition: opacity 0.
 }
 @keyframes space-spin { to { transform: rotate(360deg); } }
 html.no-motion .space-loading::before { animation-duration: 2.4s; }
+html.no-motion .orbit, html.no-motion .star-core { animation: none; }
+html.no-motion .orbit { transform: translate(-50%, -50%) rotate(var(--from, 0deg)); }
+html.no-motion .vol:hover, html.no-motion .study-door:hover { transform: none; }
 
 /* 空间级错误边界面板：任一空间渲染异常时的可见兜底（原先整页白屏） */
 .eb-panel {

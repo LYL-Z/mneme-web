@@ -11,7 +11,7 @@
 import pg from 'pg';
 import {
   SECRET_NAME, SECRET_VOLUMES, QUESTIONNAIRE_MARK, isParentLabel,
-  isPrivatePath, isSecretPath, isSecretText, isSecretEntity, mustHideEntity, isLockedStub,
+  isPrivatePath, isSecretPath, isSecretText, isSecretEntity, mustHideEntity, isLockedStub, isSecretChapter,
   entityGuardSql, ENTITY_GUARD_PARAMS, docGuardSql, timelineGuardSql,
   chapterGuardSql, imageryGuardSql, questionnaireGuardSql, scrubMeta, sanitizeGroups, sanitizeForeshadow,
 } from './privacy.mjs';
@@ -184,16 +184,18 @@ export const graph = async ({ unlocked = false } = {}) => {
   return { nodes, edges, stardust, legend: { edge: '同篇共现 / wikilink 关联（非关系亲疏）', stardust: '名录留名占位（待建人物页）' } };
 };
 
-/* ---------- 五卷 ---------- */
+/* ---------- 《补写的手册》六部 ---------- */
 export const volumes = () => all(`SELECT v.*,
   (SELECT COUNT(*) FROM chapters c WHERE c.volume_code=v.code AND c.is_sample=0)::int chapters,
   (SELECT COUNT(*) FROM documents d WHERE d.volume=v.code)::int docs FROM volumes v ORDER BY v.seq`);
 
-export const volume = async (code) => {
+export const volume = async (code, { unlocked = false } = {}) => {
   const v = await one('SELECT * FROM volumes WHERE code=?', code);
   if (!v) return null;
-  const chapters = await all('SELECT * FROM chapters WHERE volume_code=? ORDER BY is_sample, seq', code);
-  const docs = await all('SELECT path,title,doc_type,mtime FROM documents WHERE volume=? ORDER BY is_index, mtime', code);
+  const chapters = (await all('SELECT * FROM chapters WHERE volume_code=? ORDER BY id', code))
+    .map(c => ({ ...c, locked: isSecretChapter(c) }));
+  const docs = (await all('SELECT path,title,doc_type,mtime FROM documents WHERE volume=? ORDER BY is_index, mtime', code))
+    .map(d => ({ ...d, locked: !unlocked && isLockedStub(d) }));
   const pendingCollect = (await one(`SELECT COUNT(*) c FROM evidence_spans es JOIN documents d ON d.id=es.doc_id
     WHERE d.volume=? AND es.kind='pendingCollect'`, code)).c;
   const foreshadow = await all(`SELECT es.kind, COUNT(*) n FROM evidence_spans es JOIN documents d ON d.id=es.doc_id
@@ -236,7 +238,7 @@ export const doc = async (rawPath, opts = {}) => {
   if (!unlocked) {
     if (d.is_private || isPrivatePath(d.path)) return { private: true };
     if (isSecretPath(d.path) || isSecretText(d.title)) return { locked: true };
-    if (SECRET_VOLUMES.includes(String(d.volume || ''))) return { locked: true };
+    if (SECRET_NAME && String(d.body || d.raw_text || '').includes(SECRET_NAME)) return { locked: true };
     /* 非父母卷的问卷作答全文属绝密（按 questionnaires.doc_path 精确匹配，勿用文件名模糊判断） */
     if (String(d.path).includes(QUESTIONNAIRE_MARK)) {
       const qr = await one('SELECT respondent_label FROM questionnaires WHERE doc_path=?', d.path);
@@ -321,7 +323,7 @@ export async function search(qs, group, opts = {}) {
     groups.volume = await all(`SELECT code,name AS title,'volume' typ FROM volumes WHERE name ILIKE ?${volG} LIMIT 8`, ...terms.map(() => `%${query}%`));
     if (groups.volume.length < 8) {
       const where = terms.map(() => 'title ILIKE ?').join(' AND ');
-      const ch = await all(`SELECT volume_code AS code, title,'chapter' typ, doc_path, seq, is_sample FROM chapters WHERE ${where}${chG} LIMIT 12`, ...terms.map(t => `%${t}%`));
+      const ch = await all(`SELECT volume_code AS code, title,'chapter' typ, doc_path, seq, is_sample, secret, kind FROM chapters WHERE ${where}${chG} LIMIT 12`, ...terms.map(t => `%${t}%`));
       groups.volume = groups.volume.concat(ch);
     }
   }

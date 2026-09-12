@@ -51,7 +51,7 @@ const NAV_GROUPS = [
     { key: 'themes', name: '主题域', sub: '十域' },
     { key: 'voices', name: '他者之声', sub: '问卷' },
   ] },
-  { label: '书稿', spaces: [{ key: 'study', name: '五卷书房', sub: '卷章' }] },
+  { label: '书稿', spaces: [{ key: 'study', name: '书房', sub: '六部' }] },
   { label: '探索', spaces: [{ key: 'museum', name: '意象博物馆', sub: '意象' }] },
   { label: '治理', spaces: [{ key: 'lighthouse', name: '证据灯塔', sub: '证据' }] },
 ] as const;
@@ -76,7 +76,7 @@ const TOC: Record<SpaceKey, { greek: string; name: string; line: string }> = {
   stars: { greek: 'Σ1', name: '记忆恒星', line: '门厅 · 全库丰碑与工作台' },
   river: { greek: 'Σ2', name: '时间之河', line: '1990–2032 人生长卷，时间之船可自动巡航' },
   graph: { greek: 'Σ3', name: '人物星图', line: '亲密度四环星座 · 星表可检索' },
-  study: { greek: 'Σ4', name: '五卷书房', line: '卷章骨架与章节材料链（卷二卷三绝密）' },
+  study: { greek: 'Σ4', name: '书房', line: '《补写的手册》· 序与六部，密章点开弹窗' },
   themes: { greek: 'Σ5', name: '主题域', line: '九大域陈列全库公开文档' },
   museum: { greek: 'Σ6', name: '意象博物馆', line: '主意象常设展与候选素牌' },
   archive: { greek: 'Σ7', name: '原文档案馆', line: '全部原文阅读 · 锚点直达' },
@@ -500,6 +500,7 @@ export default function App() {
         return;
       }
       if ((e.key === '[' || e.key === ']') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (routeRef.current.v === 'chapter') return;
         const cur = routeRef.current.v === 'doc' ? routeRef.current.path : '';
         const neigh = getDocNeighbors().filter(isPublicPath);
         const recents = getRecentDocs().map(d => d.path).filter(isPublicPath);
@@ -710,6 +711,7 @@ export default function App() {
                 onOpenDoc={openDoc}
                 onEnterLighthouse={() => openSpace('lighthouse')}
                 onOpenPerson={openPerson}
+                onOpenVolume={openVolume}
               />
             )}
             {spaceKey === 'river' && (
@@ -792,7 +794,7 @@ export default function App() {
             <span className="greek">⌘K</span> 检索全库
           </button>
 
-          {/* 章节材料链面板（路由驱动：/chapter/V3/3；关闭回书房，浏览器返回同效） */}
+          {/* 章节材料链面板（路由驱动：/chapter/B3/26；关闭回书房，浏览器返回同效） */}
           {route.v === 'chapter' && (
             <Lazy>
               <ChapterPanel
