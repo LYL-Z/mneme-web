@@ -55,38 +55,43 @@ function systemFor(spec, pack) {
   ].filter(Boolean).join('\n');
 }
 
-/* 由 chunk 构造第一人称问答对（模板化改写，不引入档案外事实） */
-function qaPairs(pack, spec) {
+/* 由 chunk 构造第一人称问答对（模板化改写，不引入档案外事实）。
+   **全量口径**：该人物语料包里的**每一段**都生成问答（不限篇数）；
+   私密/绝密块也纳入（meta.tier 如实标注），是否用于训练由训练脚本/林哥裁决。 */
+function qaPairs(pack, spec, opts = {}) {
+  const maxPer = Number(opts.maxPer) || 0;   // 0 = 不限量（全量）
   const pairs = [];
   const nm = pack.display_name;
-  const selfChunks = (pack.chunks || []).filter(c => c.kind === '自档');
-  const memChunks = (pack.chunks || []).filter(c => c.kind !== '自档' && c.tier === 'public');
+  const all = (pack.chunks || []);
+  const selfChunks = all.filter(c => c.kind === '自档');
+  const rest = all.filter(c => c.kind !== '自档');
+  /* 自档优先（身份/性格），其余按 tier（public→private→secret）与原序 */
+  const ordered = [...selfChunks, ...rest];
 
-  /* ① 身份问答 */
-  if (selfChunks.length) {
+  const pushPair = (user, answer, cite, tier) => {
+    if (maxPer && pairs.length >= maxPer) return false;
     pairs.push({
-      user: `你是谁？`,
-      assistant: `<think>我是${nm}，按档案说话。</think>${pick(selfChunks[0].text, 320)}`,
-      cite: selfChunks[0].path,
+      user,
+      assistant: answer,
+      cite,
+      tier,
     });
+    return true;
+  };
+
+  /* ① 身份问答（全部自档块） */
+  for (const c of selfChunks) {
+    if (!pushPair(`你是谁？`, `<think>我是${nm}，按档案说话。</think>${pick(c.text, 320)}`, c.path, c.tier)) return pairs;
   }
-  /* ② 记忆问答（每段档案一段） */
-  for (const c of memChunks.slice(0, 40)) {
+  /* ② 记忆问答（每段档案一段——**全量**） */
+  for (const c of rest) {
     const lead = c.year ? `${c.year} 年` : '那段时候';
-    pairs.push({
-      user: pickQuestion(c, nm),
-      assistant: `<think>想起${lead}的事。</think>${pick(c.text, 260)}`,
-      cite: c.path,
-    });
+    if (!pushPair(pickQuestion(c, nm), `<think>想起${lead}的事。</think>${pick(c.text, 260)}`, c.path, c.tier)) return pairs;
   }
   /* ③ 日常闲聊（用语言特征语料教口吻） */
   if (spec.langStyle && pack.has_lang_corpus) {
     for (const s of (spec.langStyle.原句示例 || []).slice(0, 6)) {
-      pairs.push({
-        user: '最近怎么样？',
-        assistant: `<think>随便聊聊。</think>${pick(String(s), 200)}`,
-        cite: '语言特征语料',
-      });
+      if (!pushPair('最近怎么样？', `<think>随便聊聊。</think>${pick(String(s), 200)}`, '语言特征语料', 'public')) return pairs;
     }
   }
   return pairs;
@@ -125,7 +130,7 @@ for (const p of packs) {
     chunks: chunks.map((c, i) => ({ id: i + 1, tier: c.tier, text: c.text, path: c.path, kind: c.kind, year: c.year, evidence_kind: c.evidence_kind })),
   };
   const sys = systemFor(specObj, pack);
-  const pairs = qaPairs(pack, specObj);
+  const pairs = qaPairs(pack, specObj, { maxPer: Number(process.argv[process.argv.indexOf('--max-pairs-per') + 1] || 0) });
   if (!pairs.length) { stats.skipped.push({ name: p.display_name, reason: 'no_pairs' }); continue; }
 
   const slug = (p.display_name || 'x').replace(/[\\/:*?"<>|\s]/g, '_').slice(0, 40) || ('id' + p.entity_id);
@@ -137,7 +142,7 @@ for (const p of packs) {
       { role: 'system', content: sys },
       { role: 'user', content: qa.user },
       { role: 'assistant', content: qa.assistant },
-    ], meta: { entity: p.entity_id, name: p.display_name, cite: qa.cite } };
+    ], meta: { entity: p.entity_id, name: p.display_name, cite: qa.cite, tier: qa.tier } };
     fs.writeSync(fd, JSON.stringify(row) + '\n');
     fs.writeSync(allFd, JSON.stringify(row) + '\n');
     n++; allN++; stats.pairs++;
