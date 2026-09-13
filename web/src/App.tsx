@@ -68,6 +68,17 @@ const MOBILE_TABS: { label: string; kind: 'read' | 'data' | 'book'; go: SpaceKey
 ];
 const MORE_KEYS: SpaceKey[] = ['stars', 'museum', 'lighthouse'];
 
+/* 资料组（手机底栏「资料」标签）记忆上次停留的空间：河/域/声/星图 */
+const DATA_SPACES: SpaceKey[] = ['graph', 'river', 'themes', 'voices'];
+const DATA_SPACE_KEY = 'mneme-data-space';
+const readDataSpace = (): SpaceKey => {
+  try {
+    const s = localStorage.getItem(DATA_SPACE_KEY);
+    if (s && DATA_SPACES.includes(s as SpaceKey)) return s as SpaceKey;
+  } catch { /* 隐私模式 */ }
+  return 'graph';
+};
+
 function PhoneTabIcon({ kind }: { kind: 'read' | 'data' | 'book' | 'more' }) {
   const p = { width: 22, height: 22, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   if (kind === 'read') return <svg {...p} aria-hidden><path d="M4 5.2h7.4A3.2 3.2 0 0 1 14.6 8.4V20H7.4A3.4 3.4 0 0 0 4 23.4Z" /><path d="M20 5.2h-7.4A3.2 3.2 0 0 0 9.4 8.4V20h7.2A3.4 3.4 0 0 1 20 23.4Z" /></svg>;
@@ -169,7 +180,15 @@ export default function App() {
     return () => { offBlur(); offRipple(); };
   }, [gateDone]);
   const [ov, setOv] = useState<Overview | null>(null);
+  const [ovStatus, setOvStatus] = useState<'loading' | 'ok' | 'fail'>('loading');
   const [vaultOpen, setVaultOpen] = useState(false);
+  /* 门厅 overview 载入状态：供 Stars 走 SpaceFrame 三态（骨架 / 未收录 / 网络失败） */
+  const reloadOv = useCallback(() => {
+    setOvStatus('loading');
+    api.overview()
+      .then(o => { setOv(o); setOvStatus('ok'); })
+      .catch(e => { setOvStatus('fail'); notify(apiErrorMessage(e), 'error'); });
+  }, []);
   useEffect(() => {
     const check = () => {
       document.documentElement.classList.toggle('page-hidden', document.hidden);
@@ -242,6 +261,8 @@ export default function App() {
   }, [moreOpen, tocOpen]);
   useEffect(() => bgmSub(s => setBgmOn(s.on)), []);
   const [foCount, setFoCount] = useState<number | null>(null);
+  /* 手机底栏「资料」标签记住上次停留的资料空间（河/域/声/星图），默认星图 */
+  const [lastDataSpace, setLastDataSpace] = useState<SpaceKey>(readDataSpace);
   const [theme, setTheme] = useState<'paper' | 'night'>(() => {
     const saved = localStorage.getItem('mneme-theme');
     if (saved === 'night' || saved === 'paper') return saved;
@@ -252,14 +273,13 @@ export default function App() {
   routeRef.current = route;
 
   useEffect(() => {
-    const load = () => api.overview().then(setOv).catch(e => notify(apiErrorMessage(e), 'error'));
     const vault = () => api.secretStatus().then(s => setVaultOpen(s.unlocked)).catch(() => {});
-    load();
+    reloadOv();
     vault();
-    const onUnlocked = () => { setFoCount(null); clearSilkCatalog(); load(); vault(); };
+    const onUnlocked = () => { setFoCount(null); clearSilkCatalog(); reloadOv(); vault(); };
     window.addEventListener('mneme:unlocked', onUnlocked);
     return () => window.removeEventListener('mneme:unlocked', onUnlocked);
-  }, []);
+  }, [reloadOv]);
 
   /* 文档标题跟随路由；人物/原文/意象加载后再用真名覆盖（mneme:live-title） */
   const routeTitle = route.v === 'space' ? TOC[route.key]?.name
@@ -609,6 +629,11 @@ export default function App() {
   const spaceKey: SpaceKey = route.v === 'space' ? route.key : route.v === 'doc' ? 'archive' : route.v === 'person' ? 'graph' : route.v === 'imagery' ? 'museum' : 'study';
   useEffect(() => {
     document.documentElement.dataset.space = spaceKey;
+    /* 手机底栏「资料」标签：记住本次实际停留的资料空间（河/域/声/星图） */
+    if (DATA_SPACES.includes(spaceKey)) {
+      setLastDataSpace(spaceKey);
+      try { localStorage.setItem(DATA_SPACE_KEY, spaceKey); } catch { /* 隐私模式 */ }
+    }
     const nav = document.querySelector('.topbar') as HTMLElement | null;
     const host = readScroller() || document.querySelector('.space-host') as HTMLElement | null;
     if (nav && host) {
@@ -689,13 +714,15 @@ export default function App() {
             <nav className="rail-tabs" aria-label="主要分区">
               {MOBILE_TABS.map(tab => {
                 const on = route.v !== 'foreshadow' && (tab.match as readonly string[]).includes(spaceKey);
+                /* 「资料」标签跳回上次停留的资料空间（默认人物星图），其余按各自 go */
+                const go: SpaceKey = tab.kind === 'data' ? lastDataSpace : tab.go;
                 return (
                   <a
                     key={tab.label}
-                    href={routeToPath({ v: 'space', key: tab.go })}
+                    href={routeToPath({ v: 'space', key: go })}
                     className={`rail-tab ${on ? 'on' : ''}`}
                     aria-current={on ? 'page' : undefined}
-                    onClick={e => { if (isModifiedClick(e)) return; e.preventDefault(); setMoreOpen(false); if (!on) openSpace(tab.go); }}
+                    onClick={e => { if (isModifiedClick(e)) return; e.preventDefault(); setMoreOpen(false); if (!on) openSpace(go); }}
                   >
                     <span className="rail-tab-ico"><PhoneTabIcon kind={tab.kind} /></span>
                     <span className="rail-tab-lab">{tab.label}</span>
@@ -721,8 +748,14 @@ export default function App() {
               onOpenPerson={openPerson}
               onOpenImagery={openImagery}
             />
-            <button className="top-search glass chrome" onClick={() => setCkOpen(true)} aria-label="检索全库">
-              <span>检索全库</span>
+            <button className="top-search glass chrome" onClick={() => setCkOpen(true)} aria-label="检索全库" title="检索全库">
+              <span className="top-ico" aria-hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="6.5" />
+                  <path d="M16 16l4.6 4.6" />
+                </svg>
+              </span>
+              <span className="top-lab">检索全库</span>
               <kbd>{ckHint}</kbd>
             </button>
             <button className="top-keys" onClick={() => setHelpOpen(true)} aria-label="键盘快捷键" title="快捷键">
@@ -735,7 +768,15 @@ export default function App() {
               title="分享或复制本页深链"
               onClick={() => shareOrCopyPermalink()}
             >
-              链
+              <span className="top-ico" aria-hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="18" cy="5" r="2.6" />
+                  <circle cx="6" cy="12" r="2.6" />
+                  <circle cx="18" cy="19" r="2.6" />
+                  <path d="M8.4 10.8l7.2-4.4M8.4 13.2l7.2 4.4" />
+                </svg>
+              </span>
+              <span className="top-lab">分享</span>
             </button>
             <div className="topbar-actions">
             <button
@@ -789,6 +830,8 @@ export default function App() {
             {spaceKey === 'stars' && (
               <Stars
                 overview={ov}
+                ovStatus={ovStatus}
+                onRetry={reloadOv}
                 theme={theme}
                 book={bookCode}
                 onEnterRiver={() => openSpace('river')}

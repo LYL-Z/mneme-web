@@ -53,6 +53,7 @@ html[data-pointer="coarse"] .rail-tab,
 html[data-pointer="coarse"] .more-item,
 html[data-pointer="coarse"] .ar-tool,
 html[data-pointer="coarse"] .top-search,
+html[data-pointer="coarse"] .top-copy,
 html[data-pointer="coarse"] .nav-logout,
 html[data-pointer="coarse"] .top-vault,
 html[data-pointer="coarse"] .study-door,
@@ -186,8 +187,15 @@ html[data-pointer="coarse"] .nav-theme {
   min-width: 44px; min-height: 44px;
 }
 html[data-shell="phone"] .top-search {
-  max-width: 38%; flex: 0 1 38%; height: 40px; min-height: 40px;
+  max-width: none; flex: 0 0 auto; width: 44px; min-width: 44px;
+  height: 44px; min-height: 44px; padding: 0; justify-content: center; gap: 0;
 }
+html[data-shell="phone"] .top-copy {
+  width: 44px; min-width: 44px; height: 44px; min-height: 44px;
+  padding: 0; display: grid; place-items: center;
+}
+html[data-shell="phone"] .top-search .top-lab,
+html[data-shell="phone"] .top-copy .top-lab { display: none; }
 html[data-shell="phone"] .silk { gap: 6px; }
 html[data-shell="phone"] .silk-chip,
 html[data-shell="phone"] .silk-rings { display: none; }

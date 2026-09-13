@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { animate, stagger } from 'animejs';
 import type { Overview } from '../api';
+import { SpaceFrame, type SpaceLoad } from './SpaceFrame';
 import { SignatureWall } from './SignatureWall';
 import { DailySky } from './DailySky';
 import { readPrefs } from './Wellness';
@@ -129,8 +130,10 @@ function Workbench({ overview, onOpenChapter, onOpenDoc, onEnterLighthouse }: {
   );
 }
 
-export function Stars({ overview, theme, book, onEnterRiver, onOpenChapter, onOpenDoc, onEnterLighthouse, onOpenPerson, onOpenVolume }: {
+export function Stars({ overview, ovStatus, onRetry, theme, book, onEnterRiver, onOpenChapter, onOpenDoc, onEnterLighthouse, onOpenPerson, onOpenVolume }: {
   overview: Overview | null;
+  ovStatus: 'loading' | 'ok' | 'fail';
+  onRetry: () => void;
   theme: 'paper' | 'night';
   book?: string | null;
   onEnterRiver: () => void;
@@ -141,6 +144,12 @@ export function Stars({ overview, theme, book, onEnterRiver, onOpenChapter, onOp
   onOpenVolume: (code: string) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
+
+  /* 门厅三态：网络失败 / 载入中 / 空库未收录（其余为 ok）。status 变化时重跑入场动效。 */
+  const status: SpaceLoad = ovStatus === 'fail' ? 'fail'
+    : ovStatus === 'loading' ? 'loading'
+    : (overview != null && overview.docs === 0) ? 'empty'
+    : 'ok';
 
   useEffect(() => {
     const root = rootRef.current!;
@@ -153,7 +162,7 @@ export function Stars({ overview, theme, book, onEnterRiver, onOpenChapter, onOp
       opacity: [0, 1], scale: [0.86, 1],
       delay: stagger(120, { start: 420 }), duration: 980, ease: 'outExpo',
     });
-  }, []);
+  }, [status]);
 
   const stats = overview ? [
     { n: overview.docs, label: '文档' },
@@ -176,58 +185,64 @@ export function Stars({ overview, theme, book, onEnterRiver, onOpenChapter, onOp
         </p>
       </section>
 
-      <div className="st-orbitry st-atom" aria-hidden>
-        <div className="star-core" />
-        <div className="star-halo" />
-        {[88, 128, 168, 208, 248, 288].map((d, i) => (
-          <div
-            key={d}
-            className={`orbit orbit-${i}${book === `B${i + 1}` ? ' on' : ''}`}
-            style={{ width: d, height: d, ['--from' as string]: `${i * 51}deg` }}
-          >
-            <span className="orbit-star" style={{ background: ['var(--vol1)', 'var(--vol2)', 'var(--vol3)', 'var(--vol4)', 'var(--vol5)', 'var(--vol6)'][i] }} />
-          </div>
-        ))}
-      </div>
-
-      <Workbench
-        overview={overview}
-        onOpenChapter={onOpenChapter}
-        onOpenDoc={onOpenDoc}
-        onEnterLighthouse={onEnterLighthouse}
-      />
-
-      {/* v4 · C2 每日星座：今天的天空记住今天 */}
-      <DailySky theme={theme} onOpenPerson={onOpenPerson} onOpenChapter={onOpenChapter} />
-
-      <section className="st-stats st-atom">
-        {stats.map(s => (
-          <div key={s.label} className="stat surface">
-            <b>{s.n.toLocaleString()}</b>
-            <span>{s.label}</span>
-          </div>
-        ))}
-      </section>
-
-      <Monument stardust={overview?.stardust ?? null} docs={overview?.docs ?? null} />
-
-      <section className="st-volumes st-atom">
-        {(overview?.volumes ?? []).map(v => (
-          <button
-            key={v.code}
-            type="button"
-            className="vol surface"
-            style={{ ['--vc' as string]: v.color_token }}
-            onClick={() => onOpenVolume(v.code)}
-          >
-            <i className="vol-dot" />
-            <div>
-              <b>{v.name}</b>
-              <span>{v.years} · {v.line_metaphor} · {v.chapters} 题</span>
+      <SpaceFrame
+        status={status}
+        onRetry={onRetry}
+        empty="这座馆还没有收录任何公开文档——原料仍是空的。"
+      >
+        <div className="st-orbitry st-atom" aria-hidden>
+          <div className="star-core" />
+          <div className="star-halo" />
+          {[88, 128, 168, 208, 248, 288].map((d, i) => (
+            <div
+              key={d}
+              className={`orbit orbit-${i}${book === `B${i + 1}` ? ' on' : ''}`}
+              style={{ width: d, height: d, ['--from' as string]: `${i * 51}deg` }}
+            >
+              <span className="orbit-star" style={{ background: ['var(--vol1)', 'var(--vol2)', 'var(--vol3)', 'var(--vol4)', 'var(--vol5)', 'var(--vol6)'][i] }} />
             </div>
-          </button>
-        ))}
-      </section>
+          ))}
+        </div>
+
+        <Workbench
+          overview={overview}
+          onOpenChapter={onOpenChapter}
+          onOpenDoc={onOpenDoc}
+          onEnterLighthouse={onEnterLighthouse}
+        />
+
+        {/* v4 · C2 每日星座：今天的天空记住今天 */}
+        <DailySky theme={theme} onOpenPerson={onOpenPerson} onOpenChapter={onOpenChapter} />
+
+        <section className="st-stats st-atom">
+          {stats.map(s => (
+            <div key={s.label} className="stat surface">
+              <b>{s.n.toLocaleString()}</b>
+              <span>{s.label}</span>
+            </div>
+          ))}
+        </section>
+
+        <Monument stardust={overview?.stardust ?? null} docs={overview?.docs ?? null} />
+
+        <section className="st-volumes st-atom">
+          {(overview?.volumes ?? []).map(v => (
+            <button
+              key={v.code}
+              type="button"
+              className="vol surface"
+              style={{ ['--vc' as string]: v.color_token }}
+              onClick={() => onOpenVolume(v.code)}
+            >
+              <i className="vol-dot" />
+              <div>
+                <b>{v.name}</b>
+                <span>{v.years} · {v.line_metaphor} · {v.chapters} 题</span>
+              </div>
+            </button>
+          ))}
+        </section>
+      </SpaceFrame>
 
       <button className="st-enter surface" onClick={onEnterRiver}>
         顺流而下 · 进入时间之河 →

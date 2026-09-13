@@ -159,7 +159,7 @@ html.page-hidden .glass::after {
 }
 .top-search {
   flex: 0 1 280px; max-width: 280px; height: 34px;
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px;
   padding: 0 12px 0 14px; border-radius: 999px;
   color: var(--ink-faint); font: inherit; font-size: var(--fs-s); cursor: pointer;
 }
@@ -168,6 +168,10 @@ html.page-hidden .glass::after {
   font: inherit; font-size: 11px; letter-spacing: 0.04em;
   padding: 1px 6px; border-radius: 6px; border: 1px solid var(--glass-border);
 }
+/* 顶栏图标按钮（检索 / 分享）：手机壳下常驻纯图标，桌面端图标 + 文字 */
+.top-ico { display: inline-grid; place-items: center; }
+.top-ico svg { width: 17px; height: 17px; display: block; }
+.top-lab { flex: 1 1 auto; text-align: left; }
 .top-keys {
   height: 34px; width: 34px; flex: none;
   display: flex; align-items: center; justify-content: center;
@@ -179,6 +183,7 @@ html.page-hidden .glass::after {
 .top-keys:hover { border-color: var(--bronze); color: var(--ink-soft); }
 .top-copy {
   height: 34px; padding: 0 10px; border-radius: 10px;
+  display: inline-flex; align-items: center; gap: 6px;
   border: 1px solid var(--glass-border); background: transparent;
   color: var(--ink-soft); font: inherit; font-size: var(--fs-s); cursor: pointer;
 }
@@ -1200,6 +1205,20 @@ html.no-motion .ar-loading::before { animation: none; opacity: 0.7; }
 .ar-skel i:nth-of-type(3) { width: 94%; }
 .ar-skel i:nth-of-type(4) { width: 88%; }
 .ar-skel i:nth-of-type(5) { width: 62%; }
+
+/* 空间三态兜底（SpaceFrame）：网络失败 / 空库未收录。与骨架 .ar-skel 同宽同位 */
+.space-fail {
+  max-width: var(--r-mw, 44em);
+  margin: 36px auto 0;
+  display: flex; align-items: center; gap: 12px;
+  font-size: var(--fs-r); color: var(--danger);
+}
+.space-fail .ar-chip { flex: none; }
+.space-empty {
+  max-width: var(--r-mw, 44em);
+  margin: 36px auto 0;
+  text-align: center; font-size: var(--fs-r); color: var(--ink-faint); line-height: 1.9;
+}
 
 /* ============ ⌘K 检索 ============ */
 .ck-hint {
