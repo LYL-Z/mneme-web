@@ -662,3 +662,15 @@ if (chapters.filter(c => c.kind === 'chapter').length !== 60) console.warn('  �
 console.log(`questionnaires=${questionnaires.length} timeline=${timeline.length}(锚点${timeline.filter(t => t.kind === 'anchor').length}) evidenceSpans=${parsed.reduce((s, d) => s + d.evidence.length, 0)} masked=${audit.masked}`);
 console.log(`excluded: private=${audit.excluded_private}(+other ${audit.excluded_private_other}) system=${audit.excluded_system} excalidraw=${audit.excluded_excalidraw} parseErrors=${audit.parseErrors}`);
 console.log(`DB: ${DB_PATH}  snapshot: ${(fs.statSync(SNAP_PATH).size / 1048576).toFixed(1)} MB`);
+
+/* ---------- 11. 人物人格体语料包（persona-pack, P0） ----------
+   为每个人物产出可对话语料基底：persona_pack（能说什么 · 分块 + tier）+
+   persona_spec（怎么说话 / 边界在哪 · 六维抽取式规格）。
+   纯抽取式、不调用任何模型；失败不影响 ingest 主体。 */
+try {
+  const { buildPersonas } = await import('./persona-build.mjs');
+  const ps = buildPersonas(DB_PATH, { quiet: true });
+  console.log(`persona: entities=${ps.entities} canChat=${ps.canChat} langCorpus=${ps.langCorpus} chunks(public/private/secret)=${ps.chunksPublic}/${ps.chunksPrivate}/${ps.chunksSecret}`);
+} catch (e) {
+  console.warn(`  ⚠ persona-build 跳过：${e.message}`);
+}

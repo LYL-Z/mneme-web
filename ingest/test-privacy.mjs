@@ -90,6 +90,55 @@ const dead = probes.filter(q => ftsHit(q) === 0);
 probes.forEach(q => console.log(`   FTS「${q}」命中 ${ftsHit(q)} 篇`));
 check('P6 FTS 索引可用', dead.length, dead.join(','));
 
+/* ---------- P7–P9：人物人格体语料包（persona_pack / persona_spec） ----------
+   定位见 docs/人物AI对话-技术方案-2026-09-13.md §14：人格体「由档案构建、可以超越档案」，
+   因此**不做编造审查**；但门禁必须硬——未授权片段绝不能到达浏览器（本地推理不得绕过门禁）。 */
+const hasTable = (t) => db.prepare(`SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name=?`).get(t).c;
+check('P7a persona_pack 表存在', 1 - hasTable('persona_pack'));
+check('P7b persona_spec 表存在', 1 - hasTable('persona_spec'));
+
+const packs = db.prepare('SELECT entity_id, can_chat, has_lang_corpus, has_role_doc, mention_count, support_assets, chunks FROM persona_pack').all();
+let badJson = 0, badTier = 0;
+for (const p of packs) {
+  let arr;
+  try { arr = JSON.parse(p.chunks); } catch { badJson++; continue; }
+  if (!Array.isArray(arr)) { badJson++; continue; }
+  for (const c of arr) if (!['public', 'private', 'secret'].includes(c.tier)) badTier++;
+}
+check('P7c chunks 均为合法 JSON 数组', badJson);
+check('P7d chunk.tier 取值合法', badTier);
+
+/* P8：未授权不可达 —— 未解锁时调用服务端组装，必须零非公开片段外发，且私密路径脱敏 */
+const { buildPersonaContext } = await import('../server/persona.mjs');
+const withPrivate = packs.filter(p => { try { return (JSON.parse(p.chunks) || []).some(c => c.tier !== 'public'); } catch { return false; } });
+let leak = 0, checked8 = 0;
+for (const p of withPrivate.slice(0, 30)) {
+  const r = buildPersonaContext(p.entity_id, { mode: 'persona', query: '', unlocked: false, topK: 40, maxChars: 60000 });
+  if (!r.ok) continue;
+  checked8++;
+  if (r.chunks.some(c => c.tier !== 'public')) leak++;
+  if (r.chunks.some(c => c.tier !== 'public' && c.path)) leak++;   /* 私密路径必须脱敏为 pathLabel */
+}
+check('P8 未解锁时零非公开片段外发', leak);
+console.log(`   已抽样 ${checked8} / ${withPrivate.length} 个含私密素材的人物`);
+
+/* P9：门槛公式与语言语料判定的一致性 */
+const LANG_RE = /聊天记录|朋友圈|问卷作答|chat|wechat|qq|微信|群聊/i;
+let gateBad = 0, langBad = 0, n9 = 0;
+for (const p of packs.slice(0, 20)) {
+  n9++;
+  const roleSize = (() => { try { const r = db.prepare('SELECT LENGTH(raw_text) n FROM documents WHERE path=(SELECT role_doc_path FROM entities WHERE id=?)').get(p.entity_id); return r?.n || 0; } catch { return 0; } })();
+  const expect = (p.has_role_doc && (p.mention_count >= 20 || roleSize >= 4096 || p.support_assets >= 1)) ? 1 : 0;
+  if (expect !== p.can_chat) gateBad++;
+  const nm = db.prepare('SELECT display_name FROM entities WHERE id=?').get(p.entity_id)?.display_name || '';
+  const okLang = nm ? db.prepare('SELECT path FROM documents WHERE path LIKE ?').all(`%${nm}%`)
+    .some(d => LANG_RE.test(d.path) && d.path.includes(nm)) : false;
+  if (p.has_lang_corpus === 1 && !okLang) langBad++;
+}
+check('P9a can_chat 与门槛公式一致', gateBad);
+check('P9b has_lang_corpus 标记有据（存在其本人语言载体文档）', langBad);
+console.log(`   已抽查 ${n9} 个人物的门槛与语言语料判定`);
+
 db.close();
 if (fails.length === 0) {
   console.log('\n✅ 数据库级隐私结构测试通过（P1–P6）');

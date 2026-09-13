@@ -270,6 +270,50 @@ export interface ImageryOne extends ImageryItem {
   relatedImagery: { id: number; name: string; co: number; locked?: boolean }[];
 }
 
+/* ---------- v9.5 · 人物人格体（P0） ----------
+   定位：由档案构建、可以超越档案的「人格体」。服务端只做授权（未授权 chunk 绝不下发）
+   与组装（档位 prompt + 常驻人格基底 + 检索注入）；**推理由浏览器本地模型完成（零账单）**。 */
+export interface PersonaMeta {
+  ok: boolean;
+  id: number;
+  display_name: string;
+  can_chat: boolean;
+  reason: string | null;
+  locked: boolean;
+  needs_unlock_for_private: boolean;
+  tier_counts: { public: number; private: number; secret: number };
+  mention_count: number;
+  has_role_doc: boolean;
+  support_assets: number;
+  has_lang_corpus: boolean;
+  disabled: boolean;
+}
+export interface PersonaChunk {
+  id: number;
+  tier: 'public' | 'private' | 'secret';
+  text: string;
+  path: string | null;
+  pathLabel: string;
+  kind: string;
+  year: number | null;
+  evidenceKind: string;
+}
+export interface PersonaContext {
+  ok: boolean;
+  mode: 'persona' | 'voice' | 'source';
+  modeRequested: string;
+  modeAdjusted: string | null;
+  systemPrompt: string;
+  base: string;
+  chunks: PersonaChunk[];
+  meta: {
+    id: number; name: string;
+    tierCounts: { public: number; private: number; secret: number };
+    retrieved: number; blockedByUnlock: number; budgetUsed: number;
+    canChat: boolean; hasLangCorpus: boolean;
+  };
+}
+
 export const api = {
   overview: () => swr<Overview>('/api/overview'),
   /* v4 · C4 伏应矩阵 */
@@ -305,6 +349,19 @@ export const api = {
   imagery: () => swr<ImageryItem[]>('/api/imagery'),
   imageryOne: (id: number) => j404<ImageryOne>(`/api/imagery/${id}`),
   questionnaires: () => swr<Questionnaire[]>('/api/questionnaires'),
+  /* 人物人格体：元数据（是否可对话 / 是否需解锁 / 素材分层） */
+  persona: (id: number) => j404<PersonaMeta>(`/api/persona/${id}`),
+  /* 取授权语料（服务端按 unlock 状态过滤；未授权 chunk 不会出现在返回值里） */
+  personaContext: (id: number, body: { mode?: 'persona' | 'voice' | 'source'; query?: string; maxChars?: number; topK?: number }) =>
+    fetch(`/api/persona/${id}/context`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(async r => {
+      if (r.ok) return await r.json() as PersonaContext;
+      if (r.status === 404) return null;
+      throw new ApiError(r.status, 'persona context failed');
+    }),
   domains: () => j<DomainStat[]>('/api/domains'),
   domainDocs: (name: string, limit = 80, offset = 0) =>
     j<DomainDocs>(`/api/domains/${encodeURIComponent(name)}/docs?limit=${limit}&offset=${offset}`),

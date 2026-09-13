@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-09-13T13:09:05.322Z",
+  "models": [
+    {
+      "id": "qwen2.5-0.5b-instruct-onnx-q4f16",
+      "name": "本机 · Qwen2.5 0.5B（ONNX q4f16）",
+      "path": "/models/qwen2.5-0.5b-instruct-onnx/onnx/model_q4f16.onnx",
+      "runtime": "/models/runtime.js",
+      "dir": "qwen2.5-0.5b-instruct-onnx",
+      "backend": "wasm",
+      "dtypes": [
+        "q4f16"
+      ],
+      "sizeBytes": 494493670,
+      "params": 0.5,
+      "quantization": "q4f16",
+      "minMemoryGB": 2,
+      "contextWindow": 2048,
+      "maxOutputTokens": 320,
+      "qualityScore": 52,
+      "languages": [
+        "zh",
+        "en"
+      ]
+    },
+    {
+      "id": "qwen2.5-1.5b-instruct-onnx-q4f16",
+      "name": "本机 · Qwen2.5 1.5B（ONNX q4f16）",
+      "path": "/models/qwen2.5-1.5b-instruct-onnx/onnx/model_q4f16.onnx",
+      "runtime": "/models/runtime.js",
+      "dir": "qwen2.5-1.5b-instruct-onnx",
+      "backend": "wasm",
+      "dtypes": [
+        "q4f16"
+      ],
+      "sizeBytes": 1233369159,
+      "params": 1.5,
+      "quantization": "q4f16",
+      "minMemoryGB": 4,
+      "contextWindow": 4096,
+      "maxOutputTokens": 480,
+      "qualityScore": 68,
+      "languages": [
+        "zh",
+        "en"
+      ]
+    }
+  ]
+}

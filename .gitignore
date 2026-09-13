@@ -54,6 +54,15 @@ deploy/server/privacy.local.json
 
 # 构建产物与临时探测（含历史泄漏样本）
 tmp/
+
+# 本地模型插槽：权重/运行时体积巨大，由 scripts/fetch-model.mjs 本机准备，不入库
+.models-cache/
+web/public/models/*.gguf
+web/public/models/*.onnx
+web/public/models/*-onnx/
+web/public/models/vendor/
+site/models/
+deploy/web-dist/models/
 # site/ 是 workbuddy 发布根：必须上传，不能排除（构建产物副本，仅含前端静态资源）
 deploy/web-dist/
 *.log
@@ -91,3 +100,6 @@ web/v9-verify2.mjs
 web/v9-browser.mjs
 web/wave4-patch.mjs
 web/wave4-b.mjs
+
+# 微调训练集（可由脚本再生，不入库）
+ft-dataset/

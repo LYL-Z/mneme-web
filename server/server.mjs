@@ -30,6 +30,8 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 /* 隐私门禁规则的唯一事实来源（server / store / store-pg 共用，禁止各写一套） */
 import { SECRET_NAME, LOCAL_PRIVACY, isPrivatePath, isSecretText, isSecretPath, isQuestionnaireEntity, mustHideEntity } from './privacy.mjs';
+/* 人物人格体：授权语料组装（门禁核心；tier 判定仍复用上面 privacy.mjs 的唯一事实来源） */
+import { personaMeta, buildPersonaContext } from './persona.mjs';
 import { vaultReady, normRel, writeClass, readSource, titleFromRaw } from './vault.mjs';
 import { startVaultWatch, requestIngest, syncStatus } from './sync-watch.mjs';
 
@@ -143,7 +145,12 @@ const CSP = [
   "default-src 'self'",
   "img-src 'self' data: blob:",
   "style-src 'self' 'unsafe-inline'",   // React 内联 style 属性与口令页内联 <style> 需要
-  "script-src 'self'",                  // 无内联脚本（口令页脚本已外置为 /gate.js）
+  /* 'wasm-unsafe-eval'：本地模型（onnxruntime-web 等 WASM 运行时）编译实例化所必需。
+     这是比 'unsafe-eval' **窄得多**的指令——只放行 WebAssembly 编译，不放行 eval()/Function()，
+     是 MDN/OWASP 对「页面要跑 WASM」场景的标准做法。没有它，浏览器直接拒绝编译：
+     "Refused to compile or instantiate WebAssembly module because 'unsafe-eval' is not
+      an allowed source of script …" */
+  "script-src 'self' 'wasm-unsafe-eval' blob:",
   "connect-src 'self'",
   "font-src 'self' data:",
   "media-src 'self' blob:",
@@ -436,6 +443,43 @@ app.get('/api/source/*', (c) => {
 
 app.put('/api/source/*', (c) => c.json({ error: 'site does not write vault' }, 501));
 
+/* ---------- 人物人格体（P0） ----------
+   定位见 docs/人物AI对话-技术方案-2026-09-13.md §14：「由档案构建、可以超越档案」的人格体。
+   服务端**只做两件事**：① 授权——未授权 chunk 绝不下发（本地推理不得绕过门禁）；
+   ② 组装——档位 systemPrompt + 常驻人格基底 + 检索注入片段。推理在浏览器本地完成（零账单）。
+   · persona-policy.json 当前**不启用**：isPersonaDisabled 默认 false（全放行）。
+   · 绝密人物沿用现有绝密门：未解锁 → 403 locked（与正文同级）。 */
+app.get('/api/persona/:id', (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: 'bad id' }, 400);
+  const meta = personaMeta(id);
+  if (!meta.ok) return notFound(c);
+  if (isSecretText(meta.display_name) && !isUnlocked(c)) return locked(c);
+  return c.json(meta);
+});
+
+app.post('/api/persona/:id/context', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: 'bad id' }, 400);
+  const body = await c.req.json().catch(() => ({}));
+  const mode = body?.mode ?? 'persona';
+  if (mode != null && !['persona', 'voice', 'source'].includes(mode)) return c.json({ error: 'bad mode' }, 400);
+  const out = buildPersonaContext(id, {
+    mode,
+    query: body?.query || '',
+    unlocked: isUnlocked(c),
+    /* 预算由前端按本机模型的窗口大小传入（本地小模型有效窗口远小于标称值） */
+    maxChars: body?.maxChars,
+    topK: body?.topK,
+  });
+  if (!out.ok) {
+    if (out.reason === 'locked') return locked(c);
+    if (out.code === 404) return notFound(c);
+    return c.json({ error: out.reason }, out.code || 403);
+  }
+  return c.json(out);
+});
+
 app.post('/api/admin/session', async (c) => {
   const ip = clientIp(c);
   if (!loginGate(ip)) return c.json({ error: 'too many attempts' }, 429);
@@ -497,6 +541,14 @@ if (fs.existsSync(WEB_DIST)) {
     return c.html(INDEX_HTML());
   });
   app.use('*', serveStatic({ root: path.relative(process.cwd(), WEB_DIST) || '.', rewriteRequestPath: (p) => p }));
+  /* /models/* 缺失必须**真 404**：否则会掉进 SPA 兜底返回 index.html（200 + HTML），
+     本地模型的 onnxruntime 拿 HTML 当 protobuf 解析 → "protobuf parsing failed"。
+     这与第八轮修过的「/assets/* 404 返回 HTML 导致整页空白」是同一类问题。
+     另外：dtype 降级链请求不存在的变体文件时，靠这个 404 才能让上层如实报告"该档不存在"。 */
+  app.get('/models/*', (c) => {
+    c.header('Cache-Control', 'no-store');
+    return c.json({ error: 'model file not found' }, 404);
+  });
   app.get('*', (c) => {
     /* 哈希分包找不到时必须 404，不能回 index.html，否则浏览器会把 HTML 当 JS 加载、整页空白 */
     if (c.req.path.startsWith('/assets/')) return c.notFound();

@@ -293,6 +293,29 @@ html[data-shell="phone"][data-orient="land"] .rail-tab-ico svg { width: 18px; he
 html[data-shell="phone"][data-orient="land"] .rail-tab-lab { font-size: 9px; }
 html[data-shell="phone"][data-orient="land"] .ar-body { padding: 16px 22px 24px; }
 
+/* v9.5 · 人物人格体：手机端走底部大抽屉，输入区贴底并避让手势条与键盘 */
+html[data-shell="phone"] .pc-mask { align-items: flex-end; padding: 0; }
+html[data-shell="phone"] .pc {
+  width: 100%; max-width: none;
+  max-height: min(92vh, calc(var(--vvh, 100dvh) - var(--safe-t)));
+  border-radius: 18px 18px 0 0;
+}
+html[data-shell="phone"] .pc-head { padding: 12px 14px 10px; grid-template-columns: 1fr auto; gap: 8px; }
+html[data-shell="phone"] .pc-disclose { grid-column: 1 / -1; white-space: normal; text-align: center; }
+html[data-shell="phone"] .pc-modes { padding: 8px 14px 0; }
+html[data-shell="phone"] .pc-mode { flex: 1 1 30%; min-width: 0; padding: 7px 6px; text-align: center; }
+html[data-shell="phone"] .pc-mode span { display: none; }
+html[data-shell="phone"] .pc-list { min-height: 42vh; padding: 12px 14px; }
+html[data-shell="phone"] .pc-msg { max-width: 94%; }
+html[data-shell="phone"] .pc-input { padding: 8px 14px calc(10px + var(--safe-b)); }
+html[data-shell="phone"] .pc-input textarea { font-size: 16px; }
+html[data-shell="phone"] .pc-foot { padding: 8px 14px calc(12px + var(--safe-b)); gap: 8px; }
+html[data-pointer="coarse"] .pc-x,
+html[data-pointer="coarse"] .pc-send { min-width: 44px; min-height: 44px; }
+
+/* ---------- 平板 ---------- */
+html[data-shell="tablet"] .pc { width: min(720px, 100%); }
+
 /* ---------- 平板壳：左栏 + 两翼签名；鸿蒙 MatePad / iPad / 折叠展开 ---------- */
 html[data-shell="tablet"] {
   --rail-w: 188px;

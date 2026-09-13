@@ -31,12 +31,16 @@ const ROOT = path.resolve(WEB, '..');
  *                     ⚠ 它排在最前——一旦陈旧，线上就一直在跑旧包（本次即因此踩坑）。
  */
 const OUTPUTS = [
-  { dir: path.join(ROOT, 'deploy', 'web-dist'), note: 'Docker/CloudBase' },
+  /* ⚠ models/ 按目标排除：本地模型权重约 470MB，若打进 deploy/web-dist 会让 Docker 镜像
+     从 316MB 膨胀到近 800MB（构建/推送显著变慢）。云端要用本地模型时，显式去掉
+     excludeStatic 即可；也可以改走对象存储 + 把该域加进 CSP（见 models/STATUS.md）。 */
+  { dir: path.join(ROOT, 'deploy', 'web-dist'), note: 'Docker/CloudBase', excludeStatic: ['models'] },
   { dir: path.join(ROOT, 'site'), note: '发布根（WEB_DIST 首选）' },
 ];
 
-/** public/ 下的静态资源目录：运行时代码按 /audio/... /signatures/... 取用 */
-const STATIC_DIRS = ['signatures', 'sponsors', 'audio', 'vendor'];
+/** public/ 下的静态资源目录：运行时代码按 /audio/... /signatures/... /models/... 取用
+   （models/ = 本地模型插槽：运行时 + 权重 + registry.json；CSP 要求同源，故必须随站点发布） */
+const STATIC_DIRS = ['signatures', 'sponsors', 'audio', 'vendor', 'models'];
 
 /** 从任意文本里抽出所有可能指向 assets 的路径字面量（绝对写法 /assets/x.js） */
 const ASSET_RE = /["'(`(](?:\.{0,2}\/)*assets\/([A-Za-z0-9._-]+)/g;
@@ -140,7 +144,26 @@ console.log('ΜΝΗΜΗ · sync-dist');
 console.log(`  assets      dist 共 ${allInDist} · 白名单 ${keep.size}`);
 
 let failed = false;
-for (const { dir: OUT, note } of OUTPUTS) {
+/** 递归剪枝：删掉目标目录里不在 keepRel（**相对 root 的路径**集合）中的文件与空目录。
+    用于 models/ 这类**嵌套**静态目录（旧的扁平实现只处理一层，会留下陈旧的模型目录）。
+    root 必须显式传入——否则递归后相对路径基准会错，导致嵌套文件被误删。 */
+function pruneDirRecursive(root, dir, keepRel) {
+  if (!fs.existsSync(dir)) return 0;
+  let n = 0;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const abs = path.join(dir, e.name);
+    const rel = path.relative(root, abs);
+    if (e.isDirectory()) {
+      n += pruneDirRecursive(root, abs, keepRel);
+      try { if (fs.readdirSync(abs).length === 0) fs.rmdirSync(abs); } catch { /* 非空 */ }
+    } else if (e.isFile() && !keepRel.has(rel)) {
+      fs.unlinkSync(abs); n += 1;
+    }
+  }
+  return n;
+}
+
+for (const { dir: OUT, note, excludeStatic = [] } of OUTPUTS) {
   fs.mkdirSync(path.join(OUT, 'assets'), { recursive: true });
 
   /* a) assets：剔除不在白名单里的旧哈希产物 */
@@ -161,16 +184,32 @@ for (const { dir: OUT, note } of OUTPUTS) {
 
   const staticReport = [];
   for (const dir of STATIC_DIRS) {
+    if (excludeStatic.includes(dir)) { staticReport.push(`${dir}(按目标排除)`); continue; }
     /* 源取 public/ 而非 dist/：dist 里的 public 副本由 Vite 拷贝，
        在 dist 无法被清空的环境里会残留旧文件（本次 bgm.mp3 因此一直是 12MB 旧版）。
-       public/ 才是这些静态资源的真正源头。 */
+       public/ 才是这些静态资源的真正源头。
+       注意：**递归**同步——models/ 下是嵌套的模型目录，旧的扁平实现会整目录漏掉。 */
     const src = fs.existsSync(path.join(PUB, dir)) ? path.join(PUB, dir) : path.join(DIST, dir);
-    const dst = path.join(OUT, dir);
     if (!fs.existsSync(src)) { staticReport.push(`${dir}(缺)`); continue; }
-    const names = new Set(fs.readdirSync(src, { withFileTypes: true }).filter(e => e.isFile()).map(e => e.name));
-    prunedStatic += prune(dst, names);
-    for (const name of names) total += copyFile(path.join(src, name), path.join(dst, name));
-    staticReport.push(`${dir}×${names.size}`);
+    const dst = path.join(OUT, dir);
+    const seen = new Set();
+    let n = 0, bytes = 0;
+    const walk = (rel) => {
+      const from = path.join(src, rel);
+      for (const e of fs.readdirSync(from, { withFileTypes: true })) {
+        const r = rel ? path.join(rel, e.name) : e.name;
+        if (e.isDirectory()) { walk(r); continue; }
+        if (!e.isFile()) continue;
+        seen.add(r);
+        const f = path.join(src, r);
+        bytes += fs.statSync(f).size;
+        total += copyFile(f, path.join(dst, r));
+        n += 1;
+      }
+    };
+    walk('');
+    prunedStatic += pruneDirRecursive(dst, seen);
+    staticReport.push(`${dir}×${n}`);
   }
 
   /* 自检：白名单里的每个文件都必须真的落到该目录 */

@@ -1,15 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
   forceSimulation, forceCollide,
   type Simulation, type SimulationNodeDatum,
 } from 'd3-force';
-import { api, ApiError, apiErrorMessage, type EntityDetail, type GraphData } from '../api';
+import { api, ApiError, apiErrorMessage, type EntityDetail, type GraphData, type PersonaMeta } from '../api';
 import { notify } from '../toast';
 import { evidenceLabel } from '../evidenceKind';
 import { useFocusTrap } from '../focusTrap';
 import { askUnlock } from '../unlock';
 import { recordPerson } from '../silk';
 import { liveTitle } from '../liveTitle';
+import { lazySpace } from '../lazySpace';
+
+/* v9.5 · 人物人格体：按需加载（本地模型运行时与对话 UI 都不进首屏包） */
+const PersonaChat = lazySpace(() => import('./PersonaChat').then(m => ({ default: m.PersonaChat })));
 
 /**
  * Σ3 人物星图 · v7「行星旷野」
@@ -65,6 +69,20 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onOpenPerson, onClearFo
   const [data, setData] = useState<GraphData | null>(null);
   const [hover, setHover] = useState<GNode | null>(null);
   const [sheet, setSheet] = useState<EntityDetail | null>(null);
+  /* v9.5 · 人物人格体：面板里开对话（门槛不达标则不给入口，也不假承诺） */
+  const [chat, setChat] = useState<{ id: number; name: string } | null>(null);
+  const [pmeta, setPmeta] = useState<PersonaMeta | null>(null);
+  const [pmetaDone, setPmetaDone] = useState(false);
+  /* 面板打开时取该人物的人格体元数据：决定「对话」入口是否出现、是否需要先解锁绝密门 */
+  useEffect(() => {
+    if (!sheet) { setPmeta(null); setPmetaDone(false); return; }
+    let dead = false;
+    setPmeta(null); setPmetaDone(false);
+    api.persona(sheet.id)
+      .then(m => { if (!dead) { setPmeta(m); setPmetaDone(true); } })
+      .catch(() => { if (!dead) { setPmeta(null); setPmetaDone(true); } });
+    return () => { dead = true; };
+  }, [sheet]);
   const sheetIdRef = useRef<number | null>(null);
   sheetIdRef.current = sheet?.id ?? null;
   /* 星表：星图等价列表入口（键盘可达——所有人物皆为 <button>，可 Tab / Enter 打开） */
@@ -955,7 +973,35 @@ export function Graph({ theme, focusPersonId, onOpenDoc, onOpenPerson, onClearFo
           {sheet.role_doc_path && (
             <button className="gp-sheet-doc" type="button" onClick={() => onOpenDoc(sheet.role_doc_path)}>打开自档页 →</button>
           )}
+
+          {/* v9.5 · 人物人格体入口：只对"素材够用"的人物开放；不够就如实说明，不假承诺 */}
+          {pmetaDone && (pmeta?.can_chat ? (
+            <button
+              className="gp-sheet-chat"
+              type="button"
+              onClick={() => setChat({ id: sheet.id, name: sheet.display_name })}
+            >
+              <span>与 TA 对话 →</span>
+              <em>
+                {pmeta.has_lang_corpus ? '可模仿口吻' : '档案基底对话'}
+                {pmeta.needs_unlock_for_private ? ' · 含私密素材' : ''}
+              </em>
+            </button>
+          ) : (
+            <p className="gp-sheet-nochat">此人暂无可用对话档案</p>
+          ))}
         </aside>
+      )}
+
+      {chat && (
+        <Suspense fallback={<div className="space-loading" aria-label="加载中" />}>
+          <PersonaChat
+            entityId={chat.id}
+            displayName={chat.name}
+            onOpenDoc={onOpenDoc}
+            onClose={() => setChat(null)}
+          />
+        </Suspense>
       )}
     </div>
   );
